@@ -190,3 +190,9 @@ Run end-to-end tests:
 chmod +x scripts/router_e2e_local.sh
 ./scripts/router_e2e_local.sh
 ```
+Licensing
+---------
+
+[](https://github.com/commonwarexyz/monorepo?tab=readme-ov-file#licensing)
+
+This repository is dual-licensed under both the [Apache 2.0](https://github.com/commonwarexyz/monorepo/blob/main/LICENSE-APACHE) and [MIT](https://github.com/commonwarexyz/monorepo/blob/main/LICENSE-MIT) licenses. You may choose either license when employing this code.
