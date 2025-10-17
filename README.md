@@ -112,6 +112,95 @@ Optional environment variables:
 
 Contract addresses are automatically loaded from the deployment JSON file.
 
+### Deployment Options
+
+### Kubernetes with Helm
+
+Deploy the router to Kubernetes using Helm charts:
+
+#### Prerequisites
+- Kubernetes cluster (1.19+)
+- Helm 3.x installed
+- kubectl configured with cluster access
+
+#### Installation
+
+1. **Basic installation with default values:**
+```bash
+helm install my-router charts/commonware-avs-router
+```
+
+2. **Installation with custom values:**
+```bash
+# Create custom values file
+cat > custom-values.yaml <<EOF
+replicaCount: 3
+image:
+  tag: "v1.0.0"
+env:
+  - name: HTTP_RPC
+    value: "https://ethereum-rpc.example.com"
+  - name: WS_RPC
+    value: "wss://ethereum-ws.example.com"
+  - name: AGGREGATION_FREQUENCY
+    value: "10"
+secrets:
+  private-key: "your-private-key-here"
+EOF
+
+# Install with custom values
+helm install my-router charts/commonware-avs-router -f custom-values.yaml
+```
+
+3. **Enable ingress:**
+```bash
+helm install my-router charts/commonware-avs-router \
+  --set ingress.enabled=true \
+  --set ingress.className=nginx \
+  --set ingress.hosts[0].host=router.example.com \
+  --set ingress.hosts[0].paths[0].path=/ \
+  --set ingress.hosts[0].paths[0].pathType=Prefix
+```
+
+#### Upgrade
+
+```bash
+# Upgrade with new values
+helm upgrade my-router charts/commonware-avs-router -f custom-values.yaml
+
+# Rollback if needed
+helm rollback my-router
+```
+
+#### Uninstallation
+
+```bash
+helm uninstall my-router
+```
+
+#### Configuration
+
+Key Helm values you can configure:
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `replicaCount` | Number of replicas | `1` |
+| `image.repository` | Image repository | `ghcr.io/breadchaincoop/commonware-avs-router` |
+| `image.tag` | Image tag | `latest` |
+| `image.pullPolicy` | Image pull policy | `IfNotPresent` |
+| `service.type` | Service type | `ClusterIP` |
+| `service.port` | Service port | `8080` |
+| `ingress.enabled` | Enable ingress | `false` |
+| `resources.limits.cpu` | CPU limit | `500m` |
+| `resources.limits.memory` | Memory limit | `512Mi` |
+| `env` | Environment variables | `[]` |
+| `secrets` | Sensitive data | `{}` |
+| `autoscaling.enabled` | Enable HPA | `false` |
+| `autoscaling.minReplicas` | Min replicas for HPA | `1` |
+| `autoscaling.maxReplicas` | Max replicas for HPA | `10` |
+
+See `charts/commonware-avs-router/values.yaml` for complete configuration options.
+
 ### Docker
 
 Pull the latest image:

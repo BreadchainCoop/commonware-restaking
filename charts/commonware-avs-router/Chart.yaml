@@ -1,0 +1,17 @@
+apiVersion: v2
+name: commonware-avs-router
+description: A Helm chart for deploying Commonware AVS Router to Kubernetes
+type: application
+version: 0.1.0
+appVersion: "latest"
+keywords:
+  - commonware
+  - avs
+  - router
+  - blockchain
+home: https://github.com/BreadchainCoop/commonware-avs-router-3
+sources:
+  - https://github.com/BreadchainCoop/commonware-avs-router-3
+maintainers:
+  - name: BreadchainCoop
+    url: https://github.com/BreadchainCoop
