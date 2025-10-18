@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - dev
+      - verify-bls-keys-ci
 
 jobs:
   docker-compose-test:
