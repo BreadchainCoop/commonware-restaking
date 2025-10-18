@@ -2,7 +2,7 @@ name: Integration Test
 
 on:
   push:
-    branches: [ dev, test-ci ]
+    branches: [ dev, test-ci, test-before-deprecation ]
   pull_request:
     branches: [ dev, test-ci ]
 
@@ -188,6 +188,46 @@ jobs:
 
           echo "Deployment file created successfully"
           cat .nodes/avs_deploy.json
+
+      - name: Verify BLS key files
+        run: |
+          cd eigenlayer-bls-local
+          echo "=== Checking BLS private key files ==="
+
+          for i in 1 2 3; do
+            keyfile=".nodes/operator_keys/testacc${i}.private.bls.key.json"
+
+            if [ ! -f "$keyfile" ]; then
+              echo "ERROR: Key file not found: $keyfile"
+              exit 1
+            fi
+
+            echo "Key file $i: $keyfile"
+            cat "$keyfile"
+
+            # Extract the privateKey value and check its length
+            privkey=$(cat "$keyfile" | jq -r '.privateKey')
+            keylen=${#privkey}
+
+            echo "  Private key length: $keylen characters"
+
+            # BLS keys on BN254 curve should be ~77 digits
+            if [ $keylen -lt 70 ]; then
+              echo "  ❌ ERROR: Key is too short! Expected ~77 digits, got $keylen"
+              echo "  This will cause nodes to crash immediately"
+              echo ""
+              echo "Full key contents:"
+              cat "$keyfile"
+              echo ""
+              exit 1
+            else
+              echo "  ✓ Key length looks valid ($keylen digits)"
+            fi
+
+            echo ""
+          done
+
+          echo "✓ All BLS keys are valid"
 
       - name: Start contributors
         run: |
