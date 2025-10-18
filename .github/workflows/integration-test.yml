@@ -75,7 +75,23 @@ jobs:
         run: |
           # Use the CI override file to use locally built image
           docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d
-          
+
+      - name: Monitor eigenlayer container startup
+        run: |
+          echo "=== Checking eigenlayer container status ==="
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml ps eigenlayer
+
+          echo ""
+          echo "=== Initial eigenlayer logs ==="
+          sleep 5
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml logs eigenlayer --tail 100
+
+          echo ""
+          echo "=== Checking filesystem before key generation ==="
+          ls -la config/ || echo "config/ not found"
+          ls -la config/.nodes/ || echo "config/.nodes/ not found"
+          ls -la config/.nodes/operator_keys/ || echo "config/.nodes/operator_keys/ not found"
+
       - name: Wait for EigenLayer setup to complete
         run: |
           echo "Waiting for EigenLayer to complete setup..."
@@ -108,6 +124,22 @@ jobs:
                 docker compose -f docker-compose.yml -f docker-compose.ci.yml logs eigenlayer --tail=50
                 exit 1
               fi
+            fi
+
+            # Show periodic diagnostic output every 30 seconds
+            if [ $((elapsed % 30)) -eq 0 ]; then
+              echo "=== Diagnostic at $elapsed seconds ==="
+              echo "Container status:"
+              docker compose -f docker-compose.yml -f docker-compose.ci.yml ps eigenlayer
+              echo ""
+              echo "Recent eigenlayer logs:"
+              docker compose -f docker-compose.yml -f docker-compose.ci.yml logs eigenlayer --tail 20
+              echo ""
+              echo "Filesystem check:"
+              ls -la config/.nodes/ 2>/dev/null || echo "config/.nodes/ not found"
+              ls -la config/.nodes/operator_keys/ 2>/dev/null || echo "operator_keys/ not found"
+              echo "=== End diagnostic ==="
+              echo ""
             fi
 
             echo "Waiting for EigenLayer setup... ($elapsed/$timeout seconds)"
