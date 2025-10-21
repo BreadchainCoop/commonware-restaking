@@ -190,3 +190,7 @@ Run end-to-end tests:
 chmod +x scripts/router_e2e_local.sh
 ./scripts/router_e2e_local.sh
 ```
+
+## Licensing
+
+This repository is dual-licensed under both the [Apache 2.0](https://github.com/BreadchainCoop/commonware-avs-router/blob/main/LICENSE-APACHE) and [MIT](https://github.com/BreadchainCoop/commonware-avs-router/blob/main/LICENSE-MIT) licenses. You may choose either license when employing this code.
