@@ -1,0 +1,1 @@
+[{"inputs":[],"name":"DelayPeriodNotPassed","type":"error"},{"inputs":[],"name":"OnlyRegistryCoordinator","type":"error"},{"inputs":[],"name":"OnlyRewardsInitiator","type":"error"},{"inputs":[],"name":"OnlyStakeRegistry","type":"error"}]

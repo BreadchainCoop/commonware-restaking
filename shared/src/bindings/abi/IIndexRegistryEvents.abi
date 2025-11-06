@@ -1,0 +1,1 @@
+[{"anonymous":false,"inputs":[{"indexed":true,"internalType":"bytes32","name":"operatorId","type":"bytes32"},{"indexed":false,"internalType":"uint8","name":"quorumNumber","type":"uint8"},{"indexed":false,"internalType":"uint32","name":"newOperatorIndex","type":"uint32"}],"name":"QuorumIndexUpdate","type":"event"}]

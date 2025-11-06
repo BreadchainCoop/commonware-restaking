@@ -1,0 +1,1 @@
+[{"inputs":[],"name":"BitmapValueTooLarge","type":"error"},{"inputs":[],"name":"BytesArrayLengthTooLong","type":"error"},{"inputs":[],"name":"BytesArrayNotOrdered","type":"error"}]

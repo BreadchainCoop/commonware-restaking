@@ -1,0 +1,1 @@
+[{"inputs":[],"name":"stateTransitionCount","outputs":[{"internalType":"uint256","name":"count","type":"uint256"}],"stateMutability":"view","type":"function"}]

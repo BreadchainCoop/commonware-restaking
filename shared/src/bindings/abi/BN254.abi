@@ -1,0 +1,1 @@
+[{"inputs":[],"name":"ECAddFailed","type":"error"},{"inputs":[],"name":"ECMulFailed","type":"error"},{"inputs":[],"name":"ECPairingFailed","type":"error"},{"inputs":[],"name":"ExpModFailed","type":"error"},{"inputs":[],"name":"ScalarTooLarge","type":"error"}]
