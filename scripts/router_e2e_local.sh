@@ -134,7 +134,7 @@ if [ ! -f "$AVS_DEPLOYMENT_PATH" ]; then
 fi
 
 echo "Running verification..."
-cargo run --release --bin verify_increments
+cargo run -p avs-scripts --release --bin verify_increments
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✅ Integration test PASSED! Counter was incremented successfully.${NC}"
