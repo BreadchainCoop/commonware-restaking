@@ -71,7 +71,7 @@ jobs:
 
       - name: Build router image for CI testing
         run: |
-          docker build -t commonware-avs-router:ci-test .
+          docker build -f router.Dockerfile -t commonware-avs-router:ci-test .
 
       - name: Pull required images
         run: |
