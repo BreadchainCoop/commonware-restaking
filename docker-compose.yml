@@ -6,7 +6,7 @@ services:
       - .env
     ports:
       - "8545:8545"
-  
+
   eigenlayer:
     platform: linux/amd64
     image: ghcr.io/breadchaincoop/eigenlayer:dev
@@ -18,7 +18,7 @@ services:
     volumes:
       - ./config/.nodes:/root/.nodes
       - ./config/config.example.json:/bls-middleware/contracts/docker/eigenlayer/config.json
-  
+
   signer:
     image: ghcr.io/layr-labs/cerberus:0.0.2
     platform: linux/amd64
@@ -33,9 +33,11 @@ services:
     env_file:
       - .env
     restart: unless-stopped
-  
+
   node-1:
-    image: ghcr.io/breadchaincoop/commonware-avs-node:dev
+    build:
+      context: .
+      dockerfile: node.Dockerfile
     pull_policy: always
     platform: linux/amd64
     depends_on:
@@ -53,13 +55,23 @@ services:
       - ./config/.nodes/operator_keys/testacc1.private.bls.key.json:/app/key.json:ro
       - ./config/.nodes:/app/.nodes:ro
       - ./config/public_orchestrator.json:/app/public_orchestrator.json:ro
-    command: ["--key-file", "/app/key.json", "--port", "3001", "--orchestrator", "/app/public_orchestrator.json"]
+    command:
+      [
+        "--key-file",
+        "/app/key.json",
+        "--port",
+        "3001",
+        "--orchestrator",
+        "/app/public_orchestrator.json",
+      ]
     ports:
       - "4001:3001"
     restart: unless-stopped
-  
+
   node-2:
-    image: ghcr.io/breadchaincoop/commonware-avs-node:dev
+    build:
+      context: .
+      dockerfile: node.Dockerfile
     pull_policy: always
     platform: linux/amd64
     depends_on:
@@ -77,13 +89,23 @@ services:
       - ./config/.nodes/operator_keys/testacc2.private.bls.key.json:/app/key.json:ro
       - ./config/.nodes:/app/.nodes:ro
       - ./config/public_orchestrator.json:/app/public_orchestrator.json:ro
-    command: ["--key-file", "/app/key.json", "--port", "3002", "--orchestrator", "/app/public_orchestrator.json"]
+    command:
+      [
+        "--key-file",
+        "/app/key.json",
+        "--port",
+        "3002",
+        "--orchestrator",
+        "/app/public_orchestrator.json",
+      ]
     ports:
       - "4002:3002"
     restart: unless-stopped
-  
+
   node-3:
-    image: ghcr.io/breadchaincoop/commonware-avs-node:dev
+    build:
+      context: .
+      dockerfile: node.Dockerfile
     pull_policy: always
     platform: linux/amd64
     depends_on:
@@ -101,15 +123,23 @@ services:
       - ./config/.nodes/operator_keys/testacc3.private.bls.key.json:/app/key.json:ro
       - ./config/.nodes:/app/.nodes:ro
       - ./config/public_orchestrator.json:/app/public_orchestrator.json:ro
-    command: ["--key-file", "/app/key.json", "--port", "3003", "--orchestrator", "/app/public_orchestrator.json"]
+    command:
+      [
+        "--key-file",
+        "/app/key.json",
+        "--port",
+        "3003",
+        "--orchestrator",
+        "/app/public_orchestrator.json",
+      ]
     ports:
       - "4003:3003"
     restart: unless-stopped
-  
+
   router:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: router.Dockerfile
     platform: linux/amd64
     depends_on:
       eigenlayer:

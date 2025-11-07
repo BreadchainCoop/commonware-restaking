@@ -1,5 +1,5 @@
 [workspace]
-members = ["node", "router", "shared"]
+members = ["node", "router", "shared", "scripts"]
 resolver = "2"
 
 [workspace.package]

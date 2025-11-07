@@ -39,7 +39,6 @@ cd "$PROJECT_ROOT"
 
 # Step 2: Set up environment files
 echo -e "${YELLOW}Step 2: Setting up environment files...${NC}"
-cp example.env .env
 
 # Copy config template
 cp config/config.example.json config/config.json
@@ -50,9 +49,6 @@ sed -i '' 's|^HTTP_RPC=.*|HTTP_RPC=http://localhost:8545|' .env
 sed -i '' 's|^WS_RPC=.*|WS_RPC=ws://localhost:8545|' .env
 sed -i '' 's|^RPC_URL=.*|RPC_URL=http://ethereum:8545|' .env
 sed -i '' 's|^ENVIRONMENT=.*|ENVIRONMENT=LOCAL|' .env
-
-# Set FORK_URL for local forking
-sed -i '' 's|^# FORK_URL=.*|FORK_URL=https://ethereum-holesky.publicnode.com|' .env
 
 # Use default Anvil private key for testing
 DEFAULT_PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
