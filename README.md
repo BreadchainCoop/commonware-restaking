@@ -16,8 +16,7 @@ Monorepo for the Commonware AVS reference implementation on EigenLayer. It conta
 - Aggregation and on‑chain execution by [`router`](./router) (increments a counter contract)
 - Message validation and payload hashing via [`shared`](./shared) wire + validator utilities
 
-> **NOTE**
->
+> [!NOTE]
 > Usecase implementations (like `counter`) will be moved to dedicated repositories (e.g., `commonware-avs-counter`). This repository will converge on providing the core AVS libraries (shared protocol types, bindings, wire/validators) and base services, and is intended to serve primarily as a reusable library layer for downstream usecases.
 
 ## Quick Start
