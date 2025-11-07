@@ -1,193 +1,111 @@
-use crate::bindings::blsapkregistry::BLSApkRegistry::{self, BLSApkRegistryInstance};
-use crate::bindings::blssigcheckoperatorstateretriever::BLSSigCheckOperatorStateRetriever::{
-    self, BLSSigCheckOperatorStateRetrieverInstance,
-};
-use crate::bindings::blssigcheckoperatorstateretriever::BN254::G1Point;
-use crate::bindings::counter::{self, Counter};
-use crate::handlers::{CounterProvider, ViewOnlyProvider};
-use alloy::providers::{Provider, ProviderBuilder};
-use alloy::sol_types::SolValue;
-use alloy_primitives::{Address, Bytes, FixedBytes, U256};
-use alloy_signer_local::PrivateKeySigner;
-use anyhow::Result;
-use bn254::{G1PublicKey, PublicKey, Signature};
-use commonware_eigenlayer::config::AvsDeployment;
-use commonware_utils::hex;
-use eigen_crypto_bls::convert_to_g1_point;
-use std::{collections::HashMap, env, str::FromStr};
+use anyhow::{Result, anyhow};
+use jito_bls_ncn_clients::{jito_clients::{JitoClient}, program_clients::bls_ncn_client::{get_bls_operator, get_rolling_snapshot, vote}};
+use jito_bls_ncn_core::bls::{solana_bls::offchain_prepare_vote_data, solana_bls_interface::{SolanaBN254G1, SolanaBN254G2, SolanaBN254PublicKey, SolanaBN254Signature}};
+use solana_pubkey::Pubkey;
+use std::{collections::HashMap};
+
+use crate::solana_helpers::{get_client_and_test_bls_ncn, get_consensus_count};
 
 pub struct Executor {
-    view_only_provider: ViewOnlyProvider,
-    bls_apk_registry: BLSApkRegistryInstance<(), ViewOnlyProvider>,
-    bls_operator_state_retriever: BLSSigCheckOperatorStateRetrieverInstance<(), ViewOnlyProvider>,
-    counter: Counter::CounterInstance<(), CounterProvider>,
-    registry_coordinator_address: Address,
-    g1_hash_map: HashMap<PublicKey, Address>,
+    client: JitoClient,
+    ncn: Pubkey,
+    operator_hash_map: HashMap<Pubkey, SolanaBN254PublicKey>,
 }
 
 impl Executor {
-    async fn ensure_g1_hash_map_entry(
-        &mut self,
-        contributor: &PublicKey,
-        g1_pubkey: &G1PublicKey,
-    ) -> Result<Address> {
-        if let Some(address) = self.g1_hash_map.get(contributor) {
-            return Ok(*address);
+    pub async fn populate_all_operators(&mut self) -> Result<()> {
+        let snapshot = get_rolling_snapshot(&self.client, &self.ncn).await?;
+
+        for operator_entry in snapshot.operators.iter() {
+            let operator_entry = match operator_entry.as_ref() {
+                Some(entry) => *entry,
+                None => continue,
+            };
+
+            let should_update = match self.operator_hash_map.get(&operator_entry.operator) {
+                Some(cached) => cached.g1.raw != operator_entry.g1,
+                None => true,
+            };
+
+            if should_update {
+                let bls_operator_account = get_bls_operator(&self.client, &operator_entry.operator).await?;
+                let g1 = SolanaBN254G1::new(&bls_operator_account.g1).map_err(|e| anyhow!("Could not derive G1: {}", e))?;
+                let g2 = SolanaBN254G2::new(&bls_operator_account.g2).map_err(|e| anyhow!("Could not derive G2: {}", e))?;
+                let bls_pubkey = SolanaBN254PublicKey::new(g1, g2);
+
+                self.operator_hash_map.insert(operator_entry.operator, bls_pubkey);
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn get_signing_indices(&self, signed_operators: &[SolanaBN254PublicKey]) -> Result<Vec<usize>> {
+        let snapshot = get_rolling_snapshot(&self.client, &self.ncn).await?;
+
+        let mut signing_indices = Vec::new();
+        for (index, operator_entry) in snapshot.operators.iter().enumerate() {
+            let operator_entry = match operator_entry.as_ref() {
+                Some(entry) => *entry,
+                None => continue,
+            };
+
+            if signed_operators.iter().any(|operator| operator.g1.raw.eq(&operator_entry.g1)) {
+                signing_indices.push(index);
+            }
         }
 
-        let g1_point = G1Point {
-            X: U256::from_str(&g1_pubkey.get_x())
-                .map_err(|e| anyhow::anyhow!("Failed to parse X coordinate: {}", e))?,
-            Y: U256::from_str(&g1_pubkey.get_y())
-                .map_err(|e| anyhow::anyhow!("Failed to parse Y coordinate: {}", e))?,
-        };
-        let hex_string = format!(
-            "0x{}",
-            hex(alloy_primitives::keccak256(g1_point.abi_encode()).as_ref())
-        );
-        let address = self
-            .bls_apk_registry
-            .pubkeyHashToOperator(
-                FixedBytes::<32>::from_str(&hex_string)
-                    .map_err(|e| anyhow::anyhow!("Failed to parse hex string: {}", e))?,
-            )
-            .call()
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to get operator from pubkey hash: {}", e))?
-            .operator;
-        self.g1_hash_map.insert(contributor.clone(), address);
-        Ok(address)
+        Ok(signing_indices)
+    }
+
+    pub async fn get_current_number(&self) -> Result<u64> {
+        get_consensus_count(&self.client, &self.ncn).await
     }
 
     pub async fn execute_verification(
         &mut self,
-        payload_hash: &[u8],
-        participating_g1: &[G1PublicKey],
-        participating: &[PublicKey],
-        signatures: &[Signature],
-    ) -> Result<alloy::rpc::types::TransactionReceipt> {
-        let (_apk, _apk_g2, asig) = bn254::get_points(participating_g1, participating, signatures)
-            .ok_or_else(|| anyhow::anyhow!("Failed to get points"))?;
-        let asig_g1 = convert_to_g1_point(asig)
-            .map_err(|e| anyhow::anyhow!("Failed to convert to G1 point: {}", e))?;
-        let sigma_struct = crate::bindings::blssigcheckoperatorstateretriever::BN254::G1Point {
-            X: U256::from_str(&asig_g1.X.to_string())
-                .map_err(|e| anyhow::anyhow!("Failed to parse X coordinate: {}", e))?,
-            Y: U256::from_str(&asig_g1.Y.to_string())
-                .map_err(|e| anyhow::anyhow!("Failed to parse Y coordinate: {}", e))?,
-        };
+        raw_message: &[u8; 32],
+        signed_operators: &[SolanaBN254PublicKey],
+        signatures: &[SolanaBN254Signature],
+    ) -> Result<()> {
+        self.populate_all_operators().await?;
+        let current_number = self.get_current_number().await?;
 
-        let msg_hash = FixedBytes::<32>::from_slice(payload_hash);
+        let g1_signatures = signatures.iter().map(|sig| sig.raw).collect::<Vec<_>>();
+        let g2_signed_pubkeys = signed_operators.iter().map(|op| op.g2.raw).collect::<Vec<_>>();
+        let total_operators = self.operator_hash_map.len();
 
-        // Get or populate operator addresses
-        let mut operators = Vec::new();
-        for (contributor, g1_pubkey) in participating.iter().zip(participating_g1.iter()) {
-            let address = self
-                .ensure_g1_hash_map_entry(contributor, g1_pubkey)
-                .await?;
-            operators.push(address);
-        }
+        let signing_indices = self.get_signing_indices(signed_operators).await?;
 
-        let current_block_number = self.view_only_provider.get_block_number().await.unwrap();
-        let quorum_numbers = Bytes::from_str("0x00").unwrap();
-        let ret = self
-            .bls_operator_state_retriever
-            .getNonSignerStakesAndSignature(
-                self.registry_coordinator_address,
-                quorum_numbers.clone(),
-                sigma_struct,
-                operators,
-                current_block_number.try_into().unwrap(),
-            )
-            .call()
-            .await
-            .unwrap()
-            ._0;
-        let non_signer_struct_data =
-            counter::IBLSSignatureCheckerTypes::NonSignerStakesAndSignature {
-                nonSignerQuorumBitmapIndices: ret.nonSignerQuorumBitmapIndices,
-                nonSignerPubkeys: ret
-                    .nonSignerPubkeys
-                    .into_iter()
-                    .map(|p| counter::BN254::G1Point { X: p.X, Y: p.Y })
-                    .collect(),
-                quorumApks: ret
-                    .quorumApks
-                    .into_iter()
-                    .map(|p| counter::BN254::G1Point { X: p.X, Y: p.Y })
-                    .collect(),
-                apkG2: counter::BN254::G2Point {
-                    X: ret.apkG2.X,
-                    Y: ret.apkG2.Y,
-                },
-                sigma: counter::BN254::G1Point {
-                    X: ret.sigma.X,
-                    Y: ret.sigma.Y,
-                },
-                quorumApkIndices: ret.quorumApkIndices,
-                totalStakeIndices: ret.totalStakeIndices,
-                nonSignerStakeIndices: ret.nonSignerStakeIndices,
-            };
-        let call_return = self
-            .counter
-            .increment(
-                msg_hash,
-                quorum_numbers,
-                current_block_number.try_into().unwrap(),
-                non_signer_struct_data,
-            )
-            .send()
-            .await
-            .unwrap();
-        let receipt = call_return.get_receipt().await.unwrap();
-        Ok(receipt)
+        let (aggregated_g1_signature, aggregated_g2_signed, operators_bitmap_signed) = offchain_prepare_vote_data(
+            &g1_signatures,
+            &g2_signed_pubkeys,
+            &signing_indices,
+            total_operators
+        ).map_err(|e| anyhow!("Could not prepare vote data: {}", e))?;
+
+        let aggregated_g1_signature = SolanaBN254G1::new(&aggregated_g1_signature).map_err(|e| anyhow!("Could not derive G1: {}", e))?;
+        let aggregated_g2_signed = SolanaBN254G2::new(&aggregated_g2_signed).map_err(|e| anyhow!("Could not derive G2: {}", e))?;
+
+        vote(
+            &mut self.client,
+            &self.ncn,
+            &aggregated_g1_signature,
+            &aggregated_g2_signed,
+            &operators_bitmap_signed,
+            raw_message,
+            current_number,
+        ).await?;
+
+        Ok(())
     }
 }
 
 pub async fn create_executor() -> Result<Executor> {
-    let http_rpc = env::var("HTTP_RPC").expect("HTTP_RPC must be set");
-    let view_only_provider = ProviderBuilder::new().on_http(url::Url::parse(&http_rpc).unwrap());
-
-    let deployment =
-        AvsDeployment::load().map_err(|e| anyhow::anyhow!("Failed to load deployment: {}", e))?;
-    let bls_apk_registry_address = deployment
-        .bls_apk_registry_address()
-        .map_err(|e| anyhow::anyhow!("Failed to get BLS APK registry address: {}", e))?;
-    let registry_coordinator_address = deployment
-        .registry_coordinator_address()
-        .map_err(|e| anyhow::anyhow!("Failed to get registry coordinator address: {}", e))?;
-    let counter_address = deployment
-        .counter_address()
-        .map_err(|e| anyhow::anyhow!("Failed to get counter address: {}", e))?;
-
-    let ecdsa_signer =
-        PrivateKeySigner::from_str(&env::var("PRIVATE_KEY").expect("PRIVATE_KEY must be set"))
-            .map_err(|e| anyhow::anyhow!("Failed to parse private key: {}", e))?;
-    let bls_operator_state_retriever_address = deployment
-        .bls_sig_check_operator_state_retriever_address()
-        .map_err(|e| {
-            anyhow::anyhow!("Failed to get BLS operator state retriever address: {}", e)
-        })?;
-
-    let write_provider = ProviderBuilder::new()
-        .wallet(ecdsa_signer)
-        .connect(&http_rpc)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to connect write provider: {}", e))?;
-    let bls_apk_registry =
-        BLSApkRegistry::new(bls_apk_registry_address, view_only_provider.clone());
-    let bls_operator_state_retriever = BLSSigCheckOperatorStateRetriever::new(
-        bls_operator_state_retriever_address,
-        view_only_provider.clone(),
-    );
-    let counter = Counter::new(counter_address, write_provider.clone());
+    let (client, test_bls_ncn) = get_client_and_test_bls_ncn()?;
 
     Ok(Executor {
-        view_only_provider,
-        bls_apk_registry,
-        bls_operator_state_retriever,
-        counter,
-        registry_coordinator_address,
-        g1_hash_map: HashMap::new(),
+        client,
+        ncn: test_bls_ncn.solana_ncn,
+        operator_hash_map: HashMap::new(),
     })
 }

@@ -1,39 +1,30 @@
-use alloy::{
-    primitives::{Address, U256},
-    sol_types::SolValue,
-};
-use alloy_provider::ProviderBuilder;
-use alloy_signer_local::PrivateKeySigner;
-use std::{env, str::FromStr, sync::Arc};
+use anyhow::{Result, anyhow};
+use std::sync::Arc;
+use jito_bls_ncn_clients::jito_clients::JitoClient;
+use solana_pubkey::Pubkey;
 use tokio::sync::Mutex;
-use tracing::info;
 
-use crate::bindings::counter::Counter;
-use crate::handlers::{CounterProvider, TaskCreator};
+use crate::handlers::{TaskCreator};
 use crate::ingress::{TaskRequest, start_http_server};
-use commonware_eigenlayer::config::AvsDeployment;
+use crate::solana_helpers::{get_client_and_test_bls_ncn, get_consensus_count, get_raw_message_and_hash};
 
 pub struct ListeningCreator {
-    counter: Counter::CounterInstance<(), CounterProvider>,
+    client: JitoClient,
+    ncn: Pubkey,
     queue: Arc<Mutex<Vec<TaskRequest>>>,
 }
 
 impl ListeningCreator {
-    pub fn new(provider: CounterProvider, counter_address: Address) -> Self {
-        let counter = Counter::new(counter_address, provider.clone());
+    pub fn new(client: JitoClient, ncn: Pubkey) -> Self {
         Self {
-            counter,
+            client,
+            ncn,
             queue: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
-    pub async fn get_current_number(&self) -> anyhow::Result<u64> {
-        let current_number = self.counter.number().call().await?;
-        Ok(current_number._0.to::<u64>())
-    }
-
-    pub async fn encode_number_call(&self, number: U256) -> Vec<u8> {
-        number.abi_encode()
+    pub async fn get_current_number(&self) -> Result<u64> {
+        get_consensus_count(&self.client, &self.ncn).await
     }
 
     // Pulls the next task from the queue, or returns None if empty
@@ -48,7 +39,7 @@ impl ListeningCreator {
 
     // Single entry point that can be called by the orchestrator
     // This is where queue requests would be pulled from
-    pub async fn get_payload_and_round(&self) -> anyhow::Result<(Vec<u8>, u64)> {
+    pub async fn get_payload_and_round(&self) -> Result<(Vec<u8>, u64)> {
         // Wait for a task to be available
         let task = loop {
             if let Some(task) = self.get_next_task().await {
@@ -57,7 +48,7 @@ impl ListeningCreator {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         };
         let current_number = self.get_current_number().await?;
-        let mut payload = self.get_payload_for_round(current_number).await?.0;
+        let mut payload = self.get_payload_for_round(current_number)?.0;
 
         // Encode the three variables into the payload
         payload.extend_from_slice(task.body.var1.as_bytes());
@@ -71,10 +62,9 @@ impl ListeningCreator {
     }
 
     // Optional: Method to get payload for a specific round number
-    pub async fn get_payload_for_round(&self, round_number: u64) -> anyhow::Result<(Vec<u8>, u64)> {
-        let encoded = self.encode_number_call(U256::from(round_number)).await;
-        info!("Created payload for specific round: {}", round_number);
-        Ok((encoded, round_number))
+    pub fn get_payload_for_round(&self, round_number: u64) -> Result<(Vec<u8>, u64)> {
+        let (raw_message, _) = get_raw_message_and_hash(round_number)?;
+        Ok((raw_message.to_vec(), round_number))
     }
 
     // Start the HTTP server in a background task
@@ -87,33 +77,25 @@ impl ListeningCreator {
 }
 
 impl TaskCreator for ListeningCreator {
-    async fn get_payload_and_round(&self) -> anyhow::Result<(Vec<u8>, u64)> {
+    async fn get_payload_and_round(&self) -> Result<(Vec<u8>, u64)> {
         self.get_payload_and_round()
             .await
-            .map_err(|e| anyhow::anyhow!("ListeningCreator error: {}", e))
+            .map_err(|e| anyhow!("ListeningCreator error: {}", e))
     }
 }
 
 // Helper function to create a new ListeningCreator instance and start HTTP server
 pub async fn create_listening_creator_with_server(
     addr: String,
-) -> anyhow::Result<Arc<ListeningCreator>> {
-    let http_rpc = env::var("HTTP_RPC").expect("HTTP_RPC must be set");
-    let private_key = env::var("PRIVATE_KEY").expect("PRIVATE_KEY must be set");
-    let signer = PrivateKeySigner::from_str(&private_key)?;
-    let provider = ProviderBuilder::new()
-        .wallet(signer)
-        .connect(&http_rpc)
-        .await?;
-    let deployment =
-        AvsDeployment::load().map_err(|e| anyhow::anyhow!("Failed to load deployment: {}", e))?;
-    let counter_address = deployment
-        .counter_address()
-        .map_err(|e| anyhow::anyhow!("Failed to get counter address: {}", e))?;
-    let creator = Arc::new(ListeningCreator::new(provider, counter_address));
+) -> Result<Arc<ListeningCreator>> {
+    let (client, test_bls_ncn) = get_client_and_test_bls_ncn()?;
+
+    let creator = Arc::new(ListeningCreator::new(client, test_bls_ncn.solana_ncn));
     let server_creator = creator.clone();
+
     tokio::spawn(async move {
         server_creator.start_http_server(addr).await;
     });
+
     Ok(creator)
 }

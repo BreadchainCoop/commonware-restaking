@@ -2,18 +2,18 @@ use crate::handlers::creator::create_creator;
 use crate::handlers::executor::create_executor;
 use crate::handlers::listening_creator::create_listening_creator_with_server;
 use crate::handlers::{TaskCreator, TaskCreatorEnum};
-use crate::validator::Validator;
+use crate::solana_helpers::get_raw_message_and_hash;
 use crate::wire::{self, aggregation::Payload};
 
-use bn254::{Bn254, G1PublicKey, PublicKey, Signature as Bn254Signature};
 use bytes::Bytes;
 use commonware_codec::{EncodeSize, ReadExt, Write};
-use commonware_cryptography::{Hasher, Sha256, Verifier};
+use commonware_cryptography::Verifier;
 use commonware_macros::select;
 use commonware_p2p::{Receiver, Sender};
 use commonware_runtime::Clock;
 use commonware_utils::hex;
 use dotenv::dotenv;
+use jito_bls_ncn_core::bls::solana_bls_interface::{SolanaBN254G1, SolanaBN254G2, SolanaBN254Keypair, SolanaBN254PublicKey, SolanaBN254Signature};
 use std::{collections::HashMap, time::Duration};
 use tracing::info;
 const DEFAULT_VAR_1: &str = "default_var1";
@@ -23,21 +23,21 @@ const DEFAULT_VAR_3: &str = "default_var3";
 pub struct Orchestrator<E: Clock> {
     runtime: E,
     #[allow(dead_code)]
-    signer: Bn254,
+    signer: SolanaBN254Keypair,
     aggregation_frequency: Duration,
-    contributors: Vec<PublicKey>,
-    g1_map: HashMap<PublicKey, G1PublicKey>, // g2 (PublicKey) -> g1 (PublicKey)
-    ordered_contributors: HashMap<PublicKey, usize>,
+    contributors: Vec<SolanaBN254G2>,
+    g1_map: HashMap<SolanaBN254G2, SolanaBN254PublicKey>, // g2 (PublicKey) -> g1 (PublicKey)
+    ordered_contributors: HashMap<SolanaBN254G2, usize>,
     t: usize,
 }
 
 impl<E: Clock> Orchestrator<E> {
     pub async fn new(
         runtime: E,
-        signer: Bn254,
+        signer: SolanaBN254Keypair,
         aggregation_frequency: Duration,
-        mut contributors: Vec<PublicKey>,
-        g1_map: HashMap<PublicKey, G1PublicKey>,
+        mut contributors: Vec<SolanaBN254G2>,
+        g1_map: HashMap<SolanaBN254G2, SolanaBN254PublicKey>,
         t: usize,
     ) -> Self {
         dotenv().ok();
@@ -62,9 +62,8 @@ impl<E: Clock> Orchestrator<E> {
     pub async fn run(
         self,
         mut sender: impl Sender,
-        mut receiver: impl Receiver<PublicKey = PublicKey>,
+        mut receiver: impl Receiver<PublicKey = SolanaBN254G2>,
     ) {
-        let mut hasher = Sha256::new();
         let mut signatures = HashMap::new();
         let task_creator: TaskCreatorEnum;
         // Check if INGRESS flag is set to determine which creator to use
@@ -82,19 +81,19 @@ impl<E: Clock> Orchestrator<E> {
             task_creator = TaskCreatorEnum::Creator(creator);
         };
         let mut executor = create_executor().await.unwrap();
-        let validator = Validator::new().await.unwrap();
+        // let validator = Validator::new().await.unwrap();
 
         loop {
-            let (payload, current_number) = task_creator.get_payload_and_round().await.unwrap();
-            hasher.update(&payload);
-            let payload = hasher.finalize();
+            let (_, current_number) = task_creator.get_payload_and_round().await.unwrap();
+            let (raw_message, _) = get_raw_message_and_hash(current_number).unwrap();
+
             info!(
                 round = current_number.to_string(),
-                msg = hex(&payload),
+                msg = hex(&raw_message),
                 "generated payload for round"
             );
 
-            // Broadcast payload
+            // Broadcast this raw message for signing
             let message = wire::Aggregation {
                 round: current_number,
                 var1: DEFAULT_VAR_1.to_string(),
@@ -132,10 +131,13 @@ impl<E: Clock> Orchestrator<E> {
                             continue;
                         };
 
-                        // Check if round exists
-                        let Ok(msg) = wire::Aggregation::read(&mut std::io::Cursor::new(msg)) else {
-                            info!("Failed to decode message from sender: {:?}", sender);
-                            continue;
+                        let msg = match wire::Aggregation::read(&mut std::io::Cursor::new(&msg)) {
+                            Ok(m) => m,
+                            Err(e) => {
+                                info!("Failed to decode message from sender: {:?}, error: {:?}, raw bytes length: {}",
+                                      sender, e, msg.len());
+                                continue;
+                            }
                         };
                         let Some(round) = signatures.get_mut(&msg.round) else {
                             info!("Received signature for unknown round: {} from contributor: {:?}", msg.round, contributor);
@@ -159,18 +161,20 @@ impl<E: Clock> Orchestrator<E> {
                                 continue;
                             }
                         };
-                        let Ok(signature) = Bn254Signature::try_from(signature) else {
+                        let Ok(signature) = SolanaBN254Signature::try_from(signature) else {
                             info!("Failed to parse signature from contributor: {:?}", contributor);
                             continue;
                         };
 
-                        let mut buf = Vec::with_capacity(msg.encode_size());
-                        msg.write(&mut buf);
-                        let expected_digest = validator.validate_and_return_expected_hash(&buf).await.unwrap();
-                        info!("Verifying signature for round: {} from contributor: {:?}, expected digest: {}",
-                              msg.round, contributor, hex(&expected_digest));
+                        // Create the raw message from the round (same as contributors do)
+                        let (raw_message, _) = get_raw_message_and_hash(current_number).unwrap();
 
-                        if !sender.verify(None, &expected_digest, &signature) {
+                        info!("Verifying signature for round: {} from contributor: {:?}, raw message: {}",
+                              msg.round, contributor, hex(&raw_message));
+
+                        // Verify against the raw message, not the hashed wire message
+                        let consensus_bytes = msg.round.to_le_bytes();
+                        if !sender.verify(Some(&consensus_bytes), &raw_message, &signature) {
                             info!("Signature verification failed for contributor: {:?}", contributor);
                             continue;
                         }
@@ -189,29 +193,21 @@ impl<E: Clock> Orchestrator<E> {
 
                         // Aggregate signatures
                         let mut participating = Vec::new();
-                        let mut participating_g1 = Vec::new();
                         let mut signatures = Vec::new();
                         for i in 0..self.contributors.len() {
                             let Some(signature) = round.get(&i) else {
                                 continue;
                             };
                             let contributor = &self.contributors[i];
-                            let g1_pubkey : G1PublicKey= self.g1_map[contributor].clone();
-                            participating_g1.push(g1_pubkey.clone());
-                            participating.push(contributor.clone());
+                            let g1_pubkey : SolanaBN254G1 = self.g1_map[contributor].g1.clone();
+                            let bls_pubkey: SolanaBN254PublicKey = SolanaBN254PublicKey::new(g1_pubkey, contributor.clone());
+
+                            participating.push(bls_pubkey);
                             signatures.push(signature.clone());
                         }
-                        let agg_signature = bn254::aggregate_signatures(&signatures).unwrap();
 
-                        // Verify aggregated signature (already verified individual signatures so should never fail)
-                        if !bn254::aggregate_verify(&participating, None, &expected_digest, &agg_signature) {
-                            panic!("failed to verify aggregated signature");
-                        }
-
-                        // Execute the increment with the aggregated signature
                         match executor.execute_verification(
-                            &expected_digest,
-                            &participating_g1,
+                            &raw_message,
                             &participating,
                             &signatures,
                         ).await {

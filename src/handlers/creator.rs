@@ -1,40 +1,29 @@
-use crate::bindings::counter::Counter;
-use crate::handlers::{CounterProvider, TaskCreator};
-use alloy::{
-    primitives::{Address, U256},
-    sol_types::SolValue,
-};
-use alloy_provider::ProviderBuilder;
-use alloy_signer_local::PrivateKeySigner;
-use anyhow::Result;
-use commonware_eigenlayer::config::AvsDeployment;
-use std::{env, str::FromStr};
+use crate::handlers::{TaskCreator};
+use crate::solana_helpers::{get_client_and_test_bls_ncn, get_consensus_count, get_raw_message_and_hash};
+use anyhow::{Result, anyhow};
+use jito_bls_ncn_clients::jito_clients::{JitoClient};
+use solana_pubkey::Pubkey;
 
 pub struct Creator {
-    counter: Counter::CounterInstance<(), CounterProvider>,
+    client: JitoClient,
+    ncn: Pubkey,
 }
 
 impl Creator {
-    pub fn new(provider: CounterProvider, counter_address: Address) -> Self {
-        let counter = Counter::new(counter_address, provider.clone());
-        Self { counter }
+    pub fn new(client: JitoClient, ncn: Pubkey) -> Self {
+        Self { client, ncn }
     }
 
     pub async fn get_current_number(&self) -> Result<u64> {
-        let current_number = self.counter.number().call().await?;
-        Ok(current_number._0.to::<u64>())
-    }
-
-    pub async fn encode_number_call(&self, number: U256) -> Vec<u8> {
-        number.abi_encode()
+        get_consensus_count(&self.client, &self.ncn).await
     }
 
     async fn get_payload_and_round(&self) -> Result<(Vec<u8>, u64)> {
         let current_number = self.get_current_number().await?;
-        let encoded = self.encode_number_call(U256::from(current_number)).await;
 
         // For non-ingress mode, encode default variables into the payload
-        let mut payload = encoded;
+        let (raw_message, _) = get_raw_message_and_hash(current_number)?;
+        let mut payload = raw_message.to_vec();
         let default_vars = ["default_var1", "default_var2", "default_var3"];
         for var in default_vars {
             payload.extend_from_slice(var.as_bytes());
@@ -46,30 +35,16 @@ impl Creator {
 }
 
 impl TaskCreator for Creator {
-    async fn get_payload_and_round(&self) -> anyhow::Result<(Vec<u8>, u64)> {
+    async fn get_payload_and_round(&self) -> Result<(Vec<u8>, u64)> {
         self.get_payload_and_round()
             .await
-            .map_err(|e| anyhow::anyhow!("Creator error: {}", e))
+            .map_err(|e| anyhow!("Creator error: {}", e))
     }
 }
 
 // Helper function to create a new Creator instance
-pub async fn create_creator() -> anyhow::Result<Creator> {
-    let http_rpc = env::var("HTTP_RPC").expect("HTTP_RPC must be set");
-    let private_key = env::var("PRIVATE_KEY").expect("PRIVATE_KEY must be set");
-    let signer = PrivateKeySigner::from_str(&private_key)
-        .map_err(|e| anyhow::anyhow!("Failed to parse private key: {}", e))?;
-    let provider = ProviderBuilder::new()
-        .wallet(signer)
-        .connect(&http_rpc)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to connect provider: {}", e))?;
+pub async fn create_creator() -> Result<Creator> {
+    let (client, test_bls_ncn) = get_client_and_test_bls_ncn()?;
 
-    let deployment =
-        AvsDeployment::load().map_err(|e| anyhow::anyhow!("Failed to load deployment: {}", e))?;
-    let counter_address = deployment
-        .counter_address()
-        .map_err(|e| anyhow::anyhow!("Failed to get counter address: {}", e))?;
-
-    Ok(Creator::new(provider, counter_address))
+    Ok(Creator::new(client, test_bls_ncn.solana_ncn))
 }

@@ -1,16 +1,10 @@
-mod bindings;
 mod handlers;
 mod ingress;
 mod validator;
 mod wire;
-//use alloy_primitives::{address, hex_literal::hex};
-use ark_bn254::Fr;
-//use ark_ff::{Fp, PrimeField};
-use bn254::Bn254;
-use bn254::PrivateKey;
-use clap::{Arg, Command, value_parser};
-use commonware_cryptography::Signer;
-use commonware_eigenlayer::network_configuration::{EigenStakingClient, QuorumInfo};
+mod solana_helpers;
+use clap::{Arg, Command};
+use commonware_avs_router::solana_helpers::get_operator_states;
 use commonware_p2p::authenticated::lookup::{self, Network};
 use commonware_runtime::{
     Metrics, Runner, Spawner,
@@ -19,46 +13,19 @@ use commonware_runtime::{
 use commonware_utils::NZU32;
 use eigen_logging::log_level::LogLevel;
 use governor::Quota;
-use serde::{Deserialize, Serialize};
+use jito_bls_ncn_core::{bls::solana_bls_interface::{SolanaBN254G2}};
 use std::collections::HashMap;
-use std::env;
-use std::fs;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::{str::FromStr, time::Duration};
+use std::time::Duration;
 
-#[derive(Debug, Serialize, Deserialize)]
-#[allow(non_snake_case)]
-struct KeyConfig {
-    privateKey: String,
-}
-fn get_signer(key: &str) -> Bn254 {
-    let fr = Fr::from_str(key).expect("Invalid decimal string for private key");
-    let key = PrivateKey::from(fr);
-    Bn254::new(key).expect("Failed to create signer")
-}
-fn load_key_from_file(path: &str) -> String {
-    let contents = fs::read_to_string(path).expect("Could not read key file");
-    let config: KeyConfig = serde_json::from_str(&contents).expect("Could not parse key file");
-    config.privateKey
-}
+use crate::solana_helpers::get_client_and_test_bls_ncn;
 
 // Unique namespace to avoid message replay attacks.
 const APPLICATION_NAMESPACE: &[u8] = b"_COMMONWARE_AGGREGATION_";
 
-async fn get_operator_states() -> Result<Vec<QuorumInfo>, Box<dyn std::error::Error>> {
+fn main() {
     dotenv::dotenv().ok();
 
-    let http_rpc = env::var("HTTP_RPC").expect("HTTP_RPC must be set");
-    let ws_rpc = env::var("WS_RPC").expect("WS_RPC must be set");
-    let avs_deployment_path =
-        env::var("AVS_DEPLOYMENT_PATH").expect("AVS_DEPLOYMENT_PATH must be set");
-    println!("pre init");
-    let client = EigenStakingClient::new(http_rpc, ws_rpc, avs_deployment_path).await?;
-    println!("init passed");
-    client.get_operator_states().await
-}
-
-fn main() {
     // Initialize runtime
     let runtime_cfg = tokio::Config::default();
     let runner = tokio::Runner::new(runtime_cfg.clone());
@@ -67,19 +34,6 @@ fn main() {
     let matches = Command::new("orchestrator")
         .about("generate and verify BN254 Multi-Signatures")
         .arg(
-            Arg::new("bootstrappers")
-                .long("bootstrappers")
-                .required(false)
-                .value_delimiter(',')
-                .value_parser(value_parser!(String)),
-        )
-        .arg(
-            Arg::new("key-file")
-                .long("key-file")
-                .required(true)
-                .help("Path to the YAML file containing the private key"),
-        )
-        .arg(
             Arg::new("port")
                 .long("port")
                 .required(true)
@@ -87,27 +41,13 @@ fn main() {
         )
         .get_matches();
 
-    // // Create logger
-    // tracing_subscriber::fmt()
-    //     .with_max_level(tracing::Level::DEBUG)
-    //     .init();
-
-    // Configure my identity
-    let key_file = matches
-        .get_one::<String>("key-file")
-        .expect("Please provide key file");
-    let port = matches
+    let port_str = matches
         .get_one::<String>("port")
         .expect("Please provide port");
-    let key = load_key_from_file(key_file);
-    let me = format!("{}@{}", key, port);
-    let parts = me.split('@').collect::<Vec<&str>>();
-    if parts.len() != 2 {
-        panic!("Identity not well-formed");
-    }
-    let key = parts[0];
-    let signer = get_signer(key);
-    let port = parts[1].parse::<u16>().expect("Port not well-formed");
+    let port = port_str.parse::<u16>().expect("Invalid port");
+    let (client, test_bls_ncn) = get_client_and_test_bls_ncn().expect("Could not get test_ncn");
+    let signer = test_bls_ncn.bls_orchestrator.bls_keypair;
+
     tracing::info!(port, "loaded port");
 
     // Configure network
@@ -125,30 +65,28 @@ fn main() {
     // Start runtime
     runner.start(|context| async move {
         let (mut network, mut oracle) = Network::new(context.with_label("network"), p2p_cfg);
-        let mut recipients: Vec<(bn254::PublicKey, SocketAddr)>;
+        let mut recipients: Vec<(SolanaBN254G2, SocketAddr)>;
         let quorum_infos;
         {
             eigen_logging::init_logger(LogLevel::Debug);
             // Get operator states and configure allowed peers
-            quorum_infos = get_operator_states()
+            quorum_infos = get_operator_states(&client, &test_bls_ncn)
                 .await
                 .expect("Failed to get operator states");
             recipients = Vec::new();
-            let participants = quorum_infos[0].operators.clone(); //TODO: Fix hardcoded quorum_number
+            let participants = quorum_infos.clone(); //TODO: Fix hardcoded quorum_number
             if participants.is_empty() {
                 panic!("Please provide at least one participant");
             }
             for participant in participants {
-                let verifier = participant.pub_keys.unwrap().g2_pub_key;
+                let verifier = participant.bls_operator.g2;
                 tracing::info!(key = ?verifier, "registered authorized key",);
-                if let Some(socket) = participant.socket {
-                    let socket_addr = SocketAddr::from_str(&socket)
-                        .expect("Bootstrapper address not well-formed");
-                    recipients.push((verifier, socket_addr));
+                if let Some(socket) = participant.socket_address {
+                    recipients.push((verifier, socket));
                 }
             }
-            let orchestrator_verifier = signer.public_key();
-            recipients.push((orchestrator_verifier, my_addr));
+            let orchestrator_verifier = signer.public_key.g2;
+            recipients.push((orchestrator_verifier, my_local_addr));
         }
         let subscriber = tracing_subscriber::fmt()
             .with_max_level(tracing::Level::DEBUG)
@@ -162,16 +100,15 @@ fn main() {
         // Parse contributors from operator states
         let mut contributors = Vec::new();
         let mut contributors_map = HashMap::new();
-        let operators = &quorum_infos[0].operators;
+        let operators = quorum_infos.clone();
         if operators.is_empty() {
             panic!("Please provide at least one contributor");
         }
         for operator in operators {
-            let verifier = operator.pub_keys.as_ref().unwrap().g2_pub_key.clone();
-            let verifier_g1 = operator.pub_keys.as_ref().unwrap().g1_pub_key.clone();
+            let verifier = operator.bls_operator.g2;
             tracing::info!(key = ?verifier, "registered contributor",);
             contributors.push(verifier.clone());
-            contributors_map.insert(verifier, verifier_g1);
+            contributors_map.insert(verifier, operator.bls_operator);
         }
 
         // Infer threshold

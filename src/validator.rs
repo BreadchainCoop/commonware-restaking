@@ -1,46 +1,25 @@
-use crate::{bindings::counter::Counter, wire};
-use alloy::sol_types::SolValue;
-use alloy_primitives::U256;
-use alloy_provider::{
-    ProviderBuilder, RootProvider,
-    fillers::{BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller},
-};
+#![allow(dead_code)]
+use crate::solana_helpers::{get_client_and_test_bls_ncn, get_consensus_count, get_raw_message_and_hash};
+use crate::wire;
 use anyhow::Result;
 use commonware_codec::{DecodeExt, ReadExt};
-use commonware_cryptography::sha256::Digest;
-use commonware_cryptography::{Hasher, Sha256};
-use commonware_eigenlayer::config::AvsDeployment;
-use std::{env, io::Cursor};
-
-// Type alias to reduce complexity
-type CounterProvider = FillProvider<
-    JoinFill<
-        alloy_provider::Identity,
-        JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
-    >,
-    RootProvider,
->;
+use jito_bls_ncn_clients::jito_clients::JitoClient;
+use solana_pubkey::Pubkey;
+use std::io::Cursor;
 
 pub struct Validator {
-    counter: Counter::CounterInstance<(), CounterProvider>,
+    client: JitoClient,
+    ncn: Pubkey,
 }
 
 impl Validator {
     pub async fn new() -> Result<Self> {
-        let http_rpc = env::var("HTTP_RPC").expect("HTTP_RPC must be set");
-        let provider = ProviderBuilder::new().on_http(url::Url::parse(&http_rpc).unwrap());
+        let (client, test_ncn_config) = get_client_and_test_bls_ncn()?;
 
-        let deployment = AvsDeployment::load()
-            .map_err(|e| anyhow::anyhow!("Failed to load AVS deployment: {}", e))?;
-        let counter_address = deployment
-            .counter_address()
-            .map_err(|e| anyhow::anyhow!("Failed to get counter address: {}", e))?;
-        let counter = Counter::new(counter_address, provider.clone());
-
-        Ok(Self { counter })
+        Ok(Self { client, ncn: test_ncn_config.solana_ncn })
     }
 
-    pub async fn validate_and_return_expected_hash(&self, msg: &[u8]) -> Result<Digest> {
+    pub async fn validate_and_return_expected_hash(&self, msg: &[u8]) -> Result<Vec<u8>> {
         // First verify the message round
         self.verify_message_round(msg).await?;
 
@@ -48,30 +27,24 @@ impl Validator {
         self.get_payload_from_message(msg).await
     }
 
-    pub async fn get_payload_from_message(&self, msg: &[u8]) -> Result<Digest> {
+    pub async fn get_payload_from_message(&self, msg: &[u8]) -> Result<Vec<u8>> {
         // Decode the wire message
         let aggregation = wire::Aggregation::decode(msg)?;
 
-        // Create the payload directly
-        let payload = U256::from(aggregation.round).abi_encode();
+        let (raw_message, _) = get_raw_message_and_hash(aggregation.round)?;
 
-        // Hash the payload
-        let mut hasher = Sha256::new();
-        hasher.update(&payload);
-        let payload_hash = hasher.finalize();
-
-        Ok(payload_hash)
+        Ok(raw_message.to_vec())
     }
 
     async fn verify_message_round(&self, msg: &[u8]) -> Result<()> {
         let aggregation = wire::Aggregation::read(&mut Cursor::new(msg))?;
-        let current_number = self.counter.number().call().await?;
-        let current_number = current_number._0.to::<u64>();
 
-        if aggregation.round != current_number {
+        let consensus_count = get_consensus_count(&self.client, &self.ncn).await?;
+
+        if aggregation.round != consensus_count {
             return Err(anyhow::anyhow!(
                 "Invalid round number in message. Expected {}, got {}",
-                current_number,
+                consensus_count,
                 aggregation.round
             ));
         }
