@@ -42,9 +42,9 @@ anyhow = "1.0"
 solana-pubkey = "3.0.0"
 solana-keypair = "3.0.0"
 solana-signer = "3.0.0"
-jito-bls-ncn-clients = { path = "../jito-bls-ncn/clients" }
-jito-bls-ncn-core = { path = "../jito-bls-ncn/core", features = ["commonware"] }
-jito-bls-ncn-sdk = { path = "../jito-bls-ncn/sdk" }
+jito-bls-ncn-clients = { git = "https://github.com/jito-foundation/jito-bls-ncn", branch = "ck/ncn", package = "jito-bls-ncn-clients" }
+jito-bls-ncn-core = { git = "https://github.com/jito-foundation/jito-bls-ncn", branch = "ck/ncn", package = "jito-bls-ncn-core", features = ["commonware"] }
+jito-bls-ncn-sdk = { git = "https://github.com/jito-foundation/jito-bls-ncn", branch = "ck/ncn", package = "jito-bls-ncn-sdk" }
 
 [build-dependencies]
 prost-build = "0.13.5"
