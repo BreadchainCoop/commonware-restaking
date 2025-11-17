@@ -1,8 +1,8 @@
+mod adapters;
 mod creator;
 mod executor;
 mod ingress;
 mod orchestrator;
-mod usecases;
 use crate::orchestrator::interface::OrchestratorTrait;
 use ark_bn254::Fr;
 use bn254::Bn254;
@@ -210,8 +210,72 @@ fn main() {
             .with_threshold(threshold)
             .load_from_env(); // Read configuration from environment variables
 
-        let orchestrator = crate::usecases::counter::CounterOrchestratorBuilder::build(builder)
+        // Build usecase components (creator, executor, validator) using the extracted crate
+        use commonware_usecase_counter as counter_uc;
+
+        // Creator (optionally listening)
+        let use_ingress = std::env::var("INGRESS").unwrap_or_default().to_lowercase() == "true";
+        let task_creator: counter_uc::CounterCreatorType = if use_ingress {
+            tracing::info!("Using creator with HTTP server on port 8080");
+            counter_uc::factories::create_listening_creator_with_server("0.0.0.0:8080".to_string())
+                .await
+                .expect("Failed to create listening creator")
+        } else {
+            tracing::info!("Using Creator without ingress");
+            counter_uc::factories::create_creator()
+                .await
+                .expect("Failed to create creator")
+        };
+
+        // Executor (router-side composition)
+        use alloy_provider::ProviderBuilder;
+        use alloy_signer_local::PrivateKeySigner;
+        use std::str::FromStr;
+        use commonware_avs_bindings::blsapkregistry::BLSApkRegistry;
+        use commonware_avs_bindings::blssigcheckoperatorstateretriever::BLSSigCheckOperatorStateRetriever;
+        use commonware_avs_bindings::WalletProvider;
+        use commonware_eigenlayer::config::AvsDeployment;
+        use crate::executor::bls::BlsEigenlayerExecutor;
+
+        let http_rpc = std::env::var("HTTP_RPC").expect("HTTP_RPC must be set");
+        let view_only_provider = ProviderBuilder::new().on_http(url::Url::parse(&http_rpc).unwrap());
+        let deployment = AvsDeployment::load().expect("Failed to load deployment");
+        let bls_apk_registry_address = deployment.bls_apk_registry_address().expect("bls apk registry address");
+        let registry_coordinator_address = deployment.registry_coordinator_address().expect("registry coordinator address");
+        let bls_operator_state_retriever_address = deployment.bls_sig_check_operator_state_retriever_address().expect("bls retriever address");
+        let counter_address = deployment.counter_address().expect("counter address");
+
+        let ecdsa_signer = PrivateKeySigner::from_str(&std::env::var("PRIVATE_KEY").expect("PRIVATE_KEY must be set"))
+            .expect("Failed to parse private key");
+        let write_provider: WalletProvider = ProviderBuilder::new()
+            .wallet(ecdsa_signer)
+            .connect(&http_rpc)
             .await
+            .expect("Failed to connect write provider");
+
+        let bls_apk_registry = BLSApkRegistry::new(bls_apk_registry_address, view_only_provider.clone());
+        let bls_operator_state_retriever = BLSSigCheckOperatorStateRetriever::new(
+            bls_operator_state_retriever_address,
+            view_only_provider.clone(),
+        );
+
+        let counter_handler = counter_uc::factories::create_counter_handler(write_provider, counter_address);
+        let executor = BlsEigenlayerExecutor::new(
+            view_only_provider,
+            bls_apk_registry,
+            bls_operator_state_retriever,
+            registry_coordinator_address,
+            counter_handler,
+        );
+
+        // Validator
+        let validator = counter_uc::CounterValidator::new()
+            .await
+            .expect("Failed to construct validator");
+
+        // Build generic orchestrator with usecase components
+        let orchestrator = builder
+            .build(task_creator, executor, validator)
             .expect("Failed to build orchestrator");
 
         context.spawn(|_| async move { orchestrator.run(sender, receiver).await });

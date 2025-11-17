@@ -1,25 +1,23 @@
-use crate::usecases::counter::creator::CounterTaskData;
+use crate::creator::CounterTaskData;
 use alloy::sol_types::SolValue;
 use alloy_primitives::U256;
 use alloy_provider::ProviderBuilder;
 use anyhow::Result;
-use commonware_avs_shared::bindings::{ReadOnlyProvider, counter::Counter};
-use commonware_avs_shared::wire;
+use commonware_avs_bindings::{ReadOnlyProvider, counter::Counter};
+use commonware_avs_core::types as wire;
 use commonware_codec::{DecodeExt, ReadExt};
 use commonware_cryptography::sha256::Digest;
 use commonware_cryptography::{Hasher, Sha256};
 use commonware_eigenlayer::config::AvsDeployment;
 use std::{env, io::Cursor};
 
-use commonware_avs_shared::validator::interface::ValidatorTrait;
+use commonware_avs_core::validator::interface::ValidatorTrait;
 
-/// Counter-specific validator implementation.
 pub struct CounterValidator {
     counter: Counter::CounterInstance<(), ReadOnlyProvider>,
 }
 
 impl CounterValidator {
-    /// Creates a new CounterValidator instance.
     pub async fn new() -> Result<Self> {
         let http_rpc = env::var("HTTP_RPC").expect("HTTP_RPC must be set");
         let provider = ProviderBuilder::new().on_http(url::Url::parse(&http_rpc).unwrap());
@@ -34,7 +32,6 @@ impl CounterValidator {
         Ok(Self { counter })
     }
 
-    /// Verifies that the message round number matches the current onchain state.
     async fn verify_message_round(&self, msg: &[u8]) -> Result<()> {
         let aggregation: wire::Aggregation<CounterTaskData> =
             wire::Aggregation::read(&mut Cursor::new(msg))?;
@@ -64,7 +61,6 @@ impl ValidatorTrait for CounterValidator {
         let aggregation: wire::Aggregation<CounterTaskData> = wire::Aggregation::decode(msg)?;
         let payload = U256::from(aggregation.round).abi_encode();
 
-        // Hash the payload
         let mut hasher = Sha256::new();
         hasher.update(&payload);
         let payload_hash = hasher.finalize();

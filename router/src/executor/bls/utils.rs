@@ -1,4 +1,4 @@
-use commonware_avs_shared::bindings::blssigcheckoperatorstateretriever::{
+use commonware_avs_bindings::blssigcheckoperatorstateretriever::{
     BLSSigCheckOperatorStateRetriever::getNonSignerStakesAndSignatureReturn,
     BN254::{G1Point, G2Point},
     IBLSSignatureCheckerTypes,

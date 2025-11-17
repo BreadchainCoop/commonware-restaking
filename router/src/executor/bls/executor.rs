@@ -5,7 +5,7 @@ use alloy_primitives::{Address, Bytes, FixedBytes, U256};
 use anyhow::Result;
 use async_trait::async_trait;
 use bn254::{G1PublicKey, PublicKey};
-use commonware_avs_shared::bindings::{
+use commonware_avs_bindings::{
     ReadOnlyProvider,
     blsapkregistry::BLSApkRegistry::BLSApkRegistryInstance,
     blssigcheckoperatorstateretriever::{

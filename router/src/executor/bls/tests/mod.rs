@@ -3,7 +3,7 @@ use crate::executor::core::ExecutionResult;
 use alloy_primitives::{Bytes, FixedBytes, U256};
 use anyhow::Result;
 use async_trait::async_trait;
-use commonware_avs_shared::bindings::blssigcheckoperatorstateretriever::{
+use commonware_avs_bindings::blssigcheckoperatorstateretriever::{
     BLSSigCheckOperatorStateRetriever::getNonSignerStakesAndSignatureReturn, BN254,
     IBLSSignatureCheckerTypes,
 };

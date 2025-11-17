@@ -6,26 +6,34 @@ use bn254::{
     aggregate_verify,
 };
 use bytes::Bytes;
-use commonware_avs_router::usecases::counter::creator::CounterTaskData;
-use commonware_avs_router::usecases::counter::validator::CounterValidator;
-use commonware_avs_shared::validator::Validator;
-use commonware_avs_shared::wire::{self, aggregation::Payload};
+use commonware_avs_router::validator::interface::ValidatorTrait;
+use commonware_avs_router::wire::{self, aggregation::Payload};
 use commonware_codec::{EncodeSize, ReadExt, Write};
 use commonware_cryptography::Signer;
 use commonware_p2p::{Receiver, Sender};
 use commonware_utils::hex;
 use dotenv::dotenv;
 use std::collections::{HashMap, HashSet};
+use std::marker::PhantomData;
+use std::sync::Arc;
 use tracing::info;
 
-pub struct Contributor {
+pub struct Contributor<T>
+where
+    T: Clone + Send + Sync + Write + commonware_codec::Read<Cfg = ()> + EncodeSize,
+{
     orchestrator: PubKey,
     signer: EllipticCurve,
     me: usize,
     aggregation_data: Option<AggregationData>,
+    validator: Option<Arc<dyn ValidatorTrait>>,
+    _marker: PhantomData<T>,
 }
 
-impl crate::contributor::ContributorBase for Contributor {
+impl<T> crate::contributor::ContributorBase for Contributor<T>
+where
+    T: Clone + Send + Sync + Write + commonware_codec::Read<Cfg = ()> + EncodeSize,
+{
     type PublicKey = PubKey;
     type Signer = EllipticCurve;
     type Signature = Sig;
@@ -42,7 +50,10 @@ impl crate::contributor::ContributorBase for Contributor {
     }
 }
 
-impl Contribute for Contributor {
+impl<T> Contribute for Contributor<T>
+where
+    T: Clone + Send + Sync + Write + commonware_codec::Read<Cfg = ()> + EncodeSize,
+{
     type AggregationInput = AggregationInput;
 
     fn new(
@@ -71,6 +82,8 @@ impl Contribute for Contributor {
                     contributors,
                     ordered_contributors,
                 }),
+                validator: None,
+                _marker: PhantomData,
             }
         } else {
             Self {
@@ -78,6 +91,8 @@ impl Contribute for Contributor {
                 signer,
                 me,
                 aggregation_data: None,
+                validator: None,
+                _marker: PhantomData,
             }
         }
     }
@@ -90,12 +105,14 @@ impl Contribute for Contributor {
         let mut signed = HashSet::new();
         let mut signatures: HashMap<u64, HashMap<usize, Sig>> = HashMap::new();
 
-        let counter_validator = CounterValidator::new().await?;
-        let validator = Validator::new(counter_validator);
+        let validator = self
+            .validator
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Validator not configured for Contributor"))?;
 
         while let Ok((s, message)) = receiver.recv().await {
             // Parse message
-            let Ok(message): Result<wire::Aggregation<CounterTaskData>, _> =
+            let Ok(message): Result<wire::Aggregation<T>, _> =
                 wire::Aggregation::read(&mut std::io::Cursor::new(message))
             else {
                 continue;
@@ -229,7 +246,7 @@ impl Contribute for Contributor {
                 .insert(self.me, signature.clone());
 
             // Return signature to orchestrator
-            let message = wire::Aggregation::<CounterTaskData> {
+            let message = wire::Aggregation::<T> {
                 round,
                 metadata: message.metadata.clone(),
                 payload: Some(Payload::Signature(signature.to_vec())),
@@ -247,5 +264,15 @@ impl Contribute for Contributor {
         }
 
         Ok(())
+    }
+}
+
+impl<T> Contributor<T>
+where
+    T: Clone + Send + Sync + Write + commonware_codec::Read<Cfg = ()> + EncodeSize,
+{
+    pub fn with_validator(mut self, validator: Arc<dyn ValidatorTrait>) -> Self {
+        self.validator = Some(validator);
+        self
     }
 }

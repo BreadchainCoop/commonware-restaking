@@ -5,7 +5,8 @@ edition = "2024"
 
 [dependencies]
 commonware-avs-router = { path = "../router" }
-commonware-avs-shared = { path = "../shared" }
+commonware-usecase-counter = { path = "../usecase-counter" }
+async-trait = { workspace = true }
 
 alloy = { workspace = true }
 alloy-network = { workspace = true }

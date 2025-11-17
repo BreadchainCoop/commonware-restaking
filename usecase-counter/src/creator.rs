@@ -5,13 +5,30 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tracing::{error, warn};
 
-use super::provider::CounterProvider;
+use crate::provider::CounterProvider;
 
-use crate::creator::core::Creator;
-use crate::ingress::types::TaskRequest;
+use commonware_avs_core::traits::Creator;
 use commonware_codec::{EncodeSize, Read, ReadExt, Write};
 
-/// Task data specific to the counter use case
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TaskRequestBody {
+    pub metadata: HashMap<String, String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TaskRequest {
+    pub body: TaskRequestBody,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TaskResponse {
+    pub success: bool,
+    pub message: String,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct CounterTaskData {
     pub var1: String,
@@ -31,7 +48,6 @@ impl Default for CounterTaskData {
 
 impl Write for CounterTaskData {
     fn write(&self, buf: &mut impl BufMut) {
-        // Write each field as length-prefixed string
         (self.var1.len() as u32).write(buf);
         buf.put_slice(self.var1.as_bytes());
         (self.var2.len() as u32).write(buf);
@@ -45,7 +61,6 @@ impl Read for CounterTaskData {
     type Cfg = ();
 
     fn read_cfg(buf: &mut impl Buf, _: &()) -> Result<Self, commonware_codec::Error> {
-        // Read each field as length-prefixed string
         let var1_len = u32::read(buf)? as usize;
         if buf.remaining() < var1_len {
             return Err(commonware_codec::Error::EndOfBuffer);
@@ -89,17 +104,13 @@ impl EncodeSize for CounterTaskData {
     }
 }
 
-/// A queue that can hold and provide task requests
 pub trait TaskQueue: Send + Sync {
-    /// Add a task to the queue
     #[allow(dead_code)]
     fn push(&self, task: TaskRequest);
 
-    /// Remove and return the next task from the queue
     fn pop(&self) -> Option<TaskRequest>;
 }
 
-/// Simple in-memory task queue using Arc<Mutex> with proper error handling
 #[derive(Clone)]
 pub struct SimpleTaskQueue {
     queue: Arc<Mutex<Vec<TaskRequest>>>,
@@ -111,8 +122,8 @@ impl SimpleTaskQueue {
     pub fn new() -> Self {
         Self {
             queue: Arc::new(Mutex::new(Vec::new())),
-            timeout_ms: 1000, // 1 second default timeout
-            max_retries: 3,   // 3 retries by default
+            timeout_ms: 1000,
+            max_retries: 3,
         }
     }
 
@@ -134,17 +145,14 @@ impl SimpleTaskQueue {
         }
     }
 
-    /// Try to acquire the lock with timeout and retries
     fn try_lock_with_timeout(&self) -> Result<std::sync::MutexGuard<'_, Vec<TaskRequest>>, String> {
         let start_time = Instant::now();
         let timeout_duration = Duration::from_millis(self.timeout_ms);
 
         for attempt in 0..self.max_retries {
-            // Try to acquire the lock
             match self.queue.try_lock() {
                 Ok(guard) => return Ok(guard),
                 Err(_) => {
-                    // Check if we've exceeded the timeout
                     if start_time.elapsed() >= timeout_duration {
                         return Err(format!(
                             "Failed to acquire lock after {}ms timeout ({} attempts)",
@@ -153,7 +161,6 @@ impl SimpleTaskQueue {
                         ));
                     }
 
-                    // Small delay before retry to avoid busy waiting
                     std::thread::sleep(Duration::from_millis(1));
                 }
             }
@@ -196,7 +203,6 @@ impl TaskQueue for SimpleTaskQueue {
     }
 }
 
-/// Configuration for listening creators
 #[derive(Debug, Clone)]
 pub struct CreatorConfig {
     pub polling_interval_ms: u64,
@@ -212,7 +218,6 @@ impl Default for CreatorConfig {
     }
 }
 
-/// Creator for the counter usecase without ingress.
 pub struct CounterCreator {
     provider: Arc<CounterProvider>,
 }
@@ -231,7 +236,6 @@ impl Creator for CounterCreator {
 
     async fn get_payload_and_round(&self) -> Result<(Vec<u8>, u64)> {
         let round = self.provider.get_current_round().await?;
-        // Domain decision: payload is ABI-encoded round
         let payload = self.provider.encode_round(round);
         Ok((payload, round))
     }
@@ -241,7 +245,6 @@ impl Creator for CounterCreator {
     }
 }
 
-/// Creator for the counter usecase that listens for external requests.
 pub struct ListeningCounterCreator<Q: TaskQueue + Send + Sync + 'static> {
     provider: Arc<CounterProvider>,
     queue: Arc<Q>,
@@ -265,7 +268,6 @@ impl<Q: TaskQueue + Send + Sync + 'static> ListeningCounterCreator<Q> {
         let max_attempts = self.config.timeout_ms / self.config.polling_interval_ms;
         loop {
             if let Some(task) = self.queue.pop() {
-                // Store the task for metadata access
                 if let Ok(mut current_task) = self.current_task.lock() {
                     *current_task = Some(task.clone());
                 } else {
@@ -300,11 +302,9 @@ impl<Q: TaskQueue + Send + Sync + 'static> Creator for ListeningCounterCreator<Q
     }
 
     fn get_task_metadata(&self) -> Self::TaskData {
-        // Try to get metadata from the current task, fall back to defaults if not available
         if let Ok(current_task) = self.current_task.lock()
             && let Some(ref task) = *current_task
         {
-            // Extract metadata from the task request body
             let var1 = task
                 .body
                 .metadata
@@ -327,18 +327,12 @@ impl<Q: TaskQueue + Send + Sync + 'static> Creator for ListeningCounterCreator<Q
             return CounterTaskData { var1, var2, var3 };
         }
 
-        // Fall back to default metadata if no task data is available
         CounterTaskData::default()
     }
 }
 
-/// This enum allows us to use concrete types at compile time while still
-/// supporting different creator implementations. This enables the generic
-/// orchestrator to work without runtime polymorphism.
 pub enum CounterCreatorType {
-    /// Basic counter creator without ingress
     Basic(CounterCreator),
-    /// Listening counter creator with HTTP ingress
     Listening(ListeningCounterCreator<SimpleTaskQueue>),
 }
 

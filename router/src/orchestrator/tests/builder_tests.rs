@@ -2,8 +2,8 @@ use crate::creator::MockCreator;
 use crate::creator::core::Creator;
 use crate::executor::MockExecutor;
 use crate::orchestrator::builder::{OrchestratorBuilder, OrchestratorBuilderConfig};
-use crate::usecases::counter::creator::CounterTaskData;
-use commonware_avs_shared::validator::MockValidator;
+use commonware_avs_core::validator::MockValidator;
+use commonware_usecase_counter::creator::CounterTaskData;
 use std::time::Duration;
 
 use super::helpers::{contributor, signer};

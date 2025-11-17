@@ -1,4 +1,4 @@
 pub mod http_server;
 pub mod types;
 
-pub use http_server::start_http_server;
+// start_http_server is not re-exported; usecase crates may run their own ingress

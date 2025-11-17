@@ -12,8 +12,8 @@ use tracing::info;
 use crate::creator::core::Creator;
 use crate::executor::core::{VerificationData, VerificationExecutor};
 use crate::orchestrator::interface::OrchestratorTrait;
-use commonware_avs_shared::validator::interface::ValidatorTrait;
-use commonware_avs_shared::wire::{self, aggregation::Payload};
+use commonware_avs_core::types::{Aggregation, aggregation::Payload};
+use commonware_avs_core::validator::interface::ValidatorTrait;
 
 /// Configuration for the generic orchestrator
 #[derive(Debug, Clone)]
@@ -138,11 +138,8 @@ where
 
             // Broadcast payload
             let task_data = self.task_creator.get_task_metadata();
-            let message = wire::Aggregation::<TC::TaskData>::new(
-                current_round,
-                task_data,
-                Some(Payload::Start),
-            );
+            let message =
+                Aggregation::<TC::TaskData>::new(current_round, task_data, Some(Payload::Start));
             let mut buf = Vec::with_capacity(message.encode_size());
             message.write(&mut buf);
             sender
@@ -182,7 +179,7 @@ where
                         };
 
                         // Check if round exists
-                        let Ok(msg): Result<wire::Aggregation<TC::TaskData>, _> = wire::Aggregation::read(&mut std::io::Cursor::new(msg)) else {
+                        let Ok(msg): Result<Aggregation<TC::TaskData>, _> = Aggregation::read(&mut std::io::Cursor::new(msg)) else {
                             info!("Failed to decode message from sender: {:?}", sender);
                             continue;
                         };

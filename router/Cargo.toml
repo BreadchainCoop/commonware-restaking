@@ -11,7 +11,9 @@ url = { workspace = true }
 dotenv = { workspace = true }
 serde = { workspace = true }
 commonware-eigenlayer = { workspace = true }
-commonware-avs-shared = { path = "../shared" }
+commonware-avs-core = { path = "../core" }
+commonware-usecase-counter = { path = "../usecase-counter" }
+commonware-avs-bindings = { path = "../bindings" }
 
 # Router-specific deps
 async-trait = { workspace = true }
@@ -56,4 +58,3 @@ anyhow = { workspace = true }
 prost-build = { workspace = true }
 
 [dev-dependencies]
-commonware-avs-shared = { path = "../shared", features = ["test-utils"] }

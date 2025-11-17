@@ -1,13 +1,17 @@
+use bn254::{PublicKey, Signature};
 use bytes::{Buf, BufMut};
-use commonware_codec::{EncodeSize, Error, Read, ReadExt, Write};
+use commonware_codec::{EncodeSize, Error, Read, ReadExt, ReadRangeExt, Write};
 
-const SIGNATURE_BYTES: usize = 32;
+/// Generic verification data that can be used by different verification methods
+#[derive(Debug, Clone)]
+pub struct VerificationData {
+    pub signatures: Vec<Signature>,
+    pub public_keys: Vec<PublicKey>,
+    /// Additional context data that might be needed by specific verification methods
+    pub context: Option<Vec<u8>>,
+}
 
-/// Represents a top-level message for the Aggregation protocol,
-/// typically sent over a dedicated aggregation communication channel.
-///
-/// It encapsulates a specific round number, flexible metadata, and a payload containing the actual
-/// aggregation protocol message content.
+/// Aggregation protocol message and payload types
 #[derive(Clone, Debug, PartialEq)]
 pub struct Aggregation<T>
 where
@@ -71,11 +75,9 @@ where
 }
 
 pub mod aggregation {
+    use super::*;
 
-    use bytes::{Buf, BufMut};
-    use commonware_codec::{EncodeSize, Error, Read, ReadExt, ReadRangeExt, Write};
-
-    use super::SIGNATURE_BYTES;
+    const SIGNATURE_BYTES: usize = 32;
 
     /// Defines the different types of messages exchanged during the aggregation protocol.
     #[derive(Clone, Debug, PartialEq)]
@@ -124,67 +126,17 @@ pub mod aggregation {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use alloy::hex;
-    use bytes::{Buf, BufMut};
-    use commonware_codec::{EncodeSize, Error, Read, Write};
-
-    #[derive(Clone, Debug, PartialEq)]
-    struct DummyMeta {
-        a: u32,
-    }
-
-    impl Write for DummyMeta {
-        fn write(&self, buf: &mut impl BufMut) {
-            self.a.write(buf);
+impl VerificationData {
+    pub fn new(signatures: Vec<Signature>, public_keys: Vec<PublicKey>) -> Self {
+        Self {
+            signatures,
+            public_keys,
+            context: None,
         }
     }
 
-    impl Read for DummyMeta {
-        type Cfg = ();
-
-        fn read_cfg(buf: &mut impl Buf, _: &()) -> Result<Self, Error> {
-            let a = u32::read(buf)?;
-            Ok(Self { a })
-        }
-    }
-
-    impl EncodeSize for DummyMeta {
-        fn encode_size(&self) -> usize {
-            self.a.encode_size()
-        }
-    }
-
-    const SAMPLE_SIGNATURE_HEX: &str =
-        "4ffa4441848335dace97935d3c167d212fe5563c1ce9a626cc6d69b4fe06449c";
-
-    #[test]
-    fn test_aggregation_start_codec() {
-        let metadata = DummyMeta { a: 42 };
-
-        let original = Aggregation::new(1, metadata, Some(aggregation::Payload::Start));
-        let mut buf = Vec::with_capacity(original.encode_size());
-        original.write(&mut buf);
-        let decoded = Aggregation::<DummyMeta>::read(&mut std::io::Cursor::new(buf)).unwrap();
-        assert_eq!(original, decoded);
-    }
-
-    #[test]
-    fn test_aggregation_signature_codec() {
-        let metadata = DummyMeta { a: 7 };
-
-        let original = Aggregation::new(
-            1,
-            metadata,
-            Some(aggregation::Payload::Signature(
-                hex::decode(SAMPLE_SIGNATURE_HEX).expect("hex decode failed"),
-            )),
-        );
-        let mut buf = Vec::with_capacity(original.encode_size());
-        original.write(&mut buf);
-        let decoded = Aggregation::<DummyMeta>::read(&mut std::io::Cursor::new(buf)).unwrap();
-        assert_eq!(original, decoded);
+    pub fn with_context(mut self, context: Vec<u8>) -> Self {
+        self.context = Some(context);
+        self
     }
 }

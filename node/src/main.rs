@@ -2,10 +2,12 @@
 //!
 //! # Usage (3 of 4 Threshold)
 mod contributor;
-mod handlers;
 use ark_bn254::Fr;
 use bn254::{Bn254, PrivateKey};
 use clap::{Arg, Command};
+use commonware_avs_router::validator::interface::ValidatorTrait;
+use commonware_cryptography::sha256::Digest;
+use commonware_cryptography::{Hasher, Sha256};
 use commonware_eigenlayer::network_configuration::{EigenStakingClient, QuorumInfo};
 use commonware_p2p::authenticated::lookup::{self, Network};
 use commonware_runtime::{
@@ -22,6 +24,7 @@ use std::env;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::str::FromStr;
+use std::sync::Arc;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[allow(non_snake_case)]
@@ -259,12 +262,34 @@ fn main() {
             let signatures_needed = contributors.len();
             aggregation_input = Some(AggregationInput::new(signatures_needed, contributors_map));
         }
-        let contributor = handlers::Contributor::new(
-            orchestrator_pub_key,
-            signer,
-            contributors,
-            aggregation_input,
-        );
+        // Generic validator implementation that hashes the entire message bytes.
+        struct PassthroughValidator;
+        #[async_trait::async_trait]
+        impl ValidatorTrait for PassthroughValidator {
+            async fn validate_and_return_expected_hash(
+                &self,
+                msg: &[u8],
+            ) -> anyhow::Result<Digest> {
+                let mut hasher = Sha256::new();
+                hasher.update(msg);
+                Ok(hasher.finalize())
+            }
+
+            async fn get_payload_from_message(&self, msg: &[u8]) -> anyhow::Result<Digest> {
+                let mut hasher = Sha256::new();
+                hasher.update(msg);
+                Ok(hasher.finalize())
+            }
+        }
+
+        let contributor: contributor::Contributor<contributor::Empty> =
+            contributor::Contributor::new(
+                orchestrator_pub_key,
+                signer,
+                contributors,
+                aggregation_input,
+            )
+            .with_validator(Arc::new(PassthroughValidator));
         context.spawn(|_| async move { contributor.run(sender, receiver).await });
 
         let _ = network.start().await;

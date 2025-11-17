@@ -1,23 +1,13 @@
-use commonware_avs_shared::bindings::WalletProvider;
-use commonware_avs_shared::bindings::blssigcheckoperatorstateretriever::BLSSigCheckOperatorStateRetriever::getNonSignerStakesAndSignatureReturn;
-use commonware_avs_shared::bindings::counter::{self, Counter};
 use crate::executor::bls::{BlsSignatureVerificationHandler, convert_non_signer_data};
 use crate::executor::core::ExecutionResult;
 use alloy_primitives::{Bytes, FixedBytes};
 use anyhow::Result;
 use async_trait::async_trait;
+use commonware_avs_bindings::blssigcheckoperatorstateretriever::BLSSigCheckOperatorStateRetriever::getNonSignerStakesAndSignatureReturn;
+use commonware_avs_bindings::counter::{self};
 
-use super::creator::CounterTaskData;
-
-pub struct CounterHandler {
-    counter: Counter::CounterInstance<(), WalletProvider>,
-}
-
-impl CounterHandler {
-    pub fn new(counter: Counter::CounterInstance<(), WalletProvider>) -> Self {
-        Self { counter }
-    }
-}
+use commonware_usecase_counter::creator::CounterTaskData;
+use commonware_usecase_counter::executor::CounterHandler;
 
 #[async_trait]
 impl BlsSignatureVerificationHandler for CounterHandler {
@@ -57,7 +47,6 @@ impl BlsSignatureVerificationHandler for CounterHandler {
                 nonSignerStakeIndices: converted_data.nonSignerStakeIndices,
             };
 
-        // Execute the counter increment
         let call_return = self
             .counter
             .increment(
