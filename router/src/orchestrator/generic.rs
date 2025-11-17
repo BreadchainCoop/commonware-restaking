@@ -10,9 +10,9 @@ use std::{collections::HashMap, time::Duration};
 use tracing::info;
 
 use crate::creator::core::Creator;
-use crate::executor::core::{VerificationData, VerificationExecutor};
 use crate::orchestrator::interface::OrchestratorTrait;
-use commonware_avs_core::types::{Aggregation, aggregation::Payload};
+use commonware_avs_core::traits::VerificationExecutor;
+use commonware_avs_core::types::{Aggregation, VerificationData, aggregation::Payload};
 use commonware_avs_core::validator::interface::ValidatorTrait;
 
 /// Configuration for the generic orchestrator

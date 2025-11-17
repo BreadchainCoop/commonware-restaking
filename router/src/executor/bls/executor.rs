@@ -1,4 +1,3 @@
-use crate::executor::core::{ExecutionResult, VerificationData, VerificationExecutor};
 use alloy::providers::Provider;
 use alloy::sol_types::SolValue;
 use alloy_primitives::{Address, Bytes, FixedBytes, U256};
@@ -20,6 +19,8 @@ use tracing::debug;
 
 use super::traits::{BlsExecutorTrait, BlsSignatureVerificationHandler};
 use super::types::BlsVerificationData;
+use commonware_avs_core::traits::{ExecutionResult, VerificationExecutor};
+use commonware_avs_core::types::VerificationData;
 
 pub struct BlsEigenlayerExecutor<H> {
     view_only_provider: ReadOnlyProvider,

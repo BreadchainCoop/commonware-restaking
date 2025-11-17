@@ -1,5 +1,5 @@
-mod builder_tests;
-mod generic_tests;
+mod builder;
+mod generic;
 mod helpers;
-mod integration_tests;
+mod integration;
 mod mocks;

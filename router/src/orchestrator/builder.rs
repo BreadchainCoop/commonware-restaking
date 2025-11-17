@@ -1,4 +1,5 @@
 use bn254::{Bn254, G1PublicKey, PublicKey};
+use commonware_avs_core::traits::VerificationExecutor;
 use commonware_avs_core::validator::interface::ValidatorTrait;
 use commonware_runtime::Clock;
 use std::collections::HashMap;
@@ -256,7 +257,7 @@ impl<C: Clock> OrchestratorBuilder<C> {
     ) -> Result<crate::orchestrator::generic::Orchestrator<TC, E, V, C>, Box<dyn std::error::Error>>
     where
         TC: crate::creator::core::Creator + Send + Sync,
-        E: crate::executor::core::VerificationExecutor<TC::TaskData> + Send + Sync,
+        E: VerificationExecutor<TC::TaskData> + Send + Sync,
         V: ValidatorTrait + Send + Sync,
     {
         self.validate()?;

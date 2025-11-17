@@ -3,7 +3,8 @@ use async_trait::async_trait;
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
-use crate::executor::core::{ExecutionResult, VerificationData, VerificationExecutor};
+use commonware_avs_core::traits::{ExecutionResult, VerificationExecutor};
+use commonware_avs_core::types::VerificationData;
 
 /// Mock executor implementation for testing purposes.
 ///

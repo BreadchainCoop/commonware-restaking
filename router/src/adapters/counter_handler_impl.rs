@@ -1,11 +1,10 @@
 use crate::executor::bls::{BlsSignatureVerificationHandler, convert_non_signer_data};
-use crate::executor::core::ExecutionResult;
 use alloy_primitives::{Bytes, FixedBytes};
 use anyhow::Result;
 use async_trait::async_trait;
 use commonware_avs_bindings::blssigcheckoperatorstateretriever::BLSSigCheckOperatorStateRetriever::getNonSignerStakesAndSignatureReturn;
 use commonware_avs_bindings::counter::{self};
-
+use commonware_avs_core::traits::ExecutionResult;
 use commonware_usecase_counter::creator::CounterTaskData;
 use commonware_usecase_counter::executor::CounterHandler;
 
