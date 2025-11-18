@@ -3,6 +3,9 @@ name = "commonware-usecase-counter"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+path = "lib.rs"
+
 [dependencies]
 anyhow = { workspace = true }
 async-trait = { workspace = true }
@@ -34,5 +37,3 @@ serde_json = { workspace = true }
 commonware-avs-node = { path = "../node" }
 dotenv = { workspace = true }
 commonware-avs-router = { path = "../router" }
-
-

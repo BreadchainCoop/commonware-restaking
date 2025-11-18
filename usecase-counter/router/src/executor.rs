@@ -1,4 +1,4 @@
-use crate::types::CounterTaskData;
+use commonware_usecase_counter::types::CounterTaskData;
 use alloy_primitives::{Bytes, FixedBytes};
 use anyhow::Result;
 use async_trait::async_trait;

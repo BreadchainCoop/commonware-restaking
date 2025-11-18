@@ -1,5 +1,5 @@
 [workspace]
-members = ["bindings", "core", "node", "router", "scripts", "usecase-counter"]
+members = ["bindings", "core", "node", "router", "scripts", "usecase-counter", "usecase-counter/router", "usecase-counter/node"]
 resolver = "2"
 
 [workspace.package]

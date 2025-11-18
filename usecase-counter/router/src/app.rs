@@ -1,3 +1,7 @@
+mod creator;
+mod executor;
+mod factories;
+mod provider;
 use ark_bn254::Fr;
 use bn254::Bn254;
 use bn254::PrivateKey;
@@ -200,19 +204,17 @@ pub fn main() {
             .with_threshold(threshold)
             .load_from_env(); // Read configuration from environment variables
 
-        // Build usecase components (creator, executor, validator) using the extracted crate
-        use commonware_usecase_counter::router as counter_uc;
 
         // Creator (optionally listening)
         let use_ingress = std::env::var("INGRESS").unwrap_or_default().to_lowercase() == "true";
-        let task_creator: counter_uc::creator::CounterCreatorType = if use_ingress {
+        let task_creator: crate::creator::CounterCreatorType = if use_ingress {
             tracing::info!("Using creator with HTTP server on port 8080");
-            counter_uc::factories::create_listening_creator_with_server("0.0.0.0:8080".to_string())
+            crate::factories::create_listening_creator_with_server("0.0.0.0:8080".to_string())
                 .await
                 .expect("Failed to create listening creator")
         } else {
             tracing::info!("Using Creator without ingress");
-            counter_uc::factories::create_creator()
+            crate::factories::create_creator()
                 .await
                 .expect("Failed to create creator")
         };
@@ -248,7 +250,7 @@ pub fn main() {
             view_only_provider.clone(),
         );
 
-        let counter_handler = counter_uc::factories::create_counter_handler(write_provider, counter_address);
+        let counter_handler = crate::factories::create_counter_handler(write_provider, counter_address);
         let executor = commonware_avs_router::executor::bls::BlsEigenlayerExecutor::new(
             view_only_provider,
             bls_apk_registry,
@@ -258,7 +260,8 @@ pub fn main() {
         );
 
         // Validator
-        let validator = counter_uc::CounterValidator::new()
+        use commonware_usecase_counter::CounterValidator;
+        let validator = CounterValidator::new()
             .await
             .expect("Failed to construct validator");
 
