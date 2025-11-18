@@ -15,6 +15,7 @@ COPY shared/Cargo.toml ./shared/Cargo.toml
 COPY router/Cargo.toml ./router/Cargo.toml
 COPY node/Cargo.toml ./node/Cargo.toml
 COPY scripts/Cargo.toml ./scripts/Cargo.toml
+
 # Create placeholder targets for workspace members so Cargo can resolve manifests
 RUN mkdir -p node/src router/src shared/src scripts/src \
     && echo 'fn main(){}' > node/src/main.rs \

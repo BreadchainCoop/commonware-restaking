@@ -16,6 +16,7 @@ pub trait ContributorBase {
 }
 
 /// Main contributor trait that extends the base
+#[allow(async_fn_in_trait)]
 pub trait Contribute: ContributorBase {
     type AggregationInput;
 

@@ -1,4 +1,4 @@
-use crate::creator::CounterTaskData;
+use crate::types::CounterTaskData;
 use alloy::sol_types::SolValue;
 use alloy_primitives::U256;
 use alloy_provider::ProviderBuilder;

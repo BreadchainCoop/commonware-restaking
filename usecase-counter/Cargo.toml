@@ -18,9 +18,21 @@ commonware-cryptography = { workspace = true }
 commonware-eigenlayer = { workspace = true }
 commonware-runtime = { workspace = true }
 tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 url = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 axum = { workspace = true }
+clap = { workspace = true }
+ark-bn254 = { workspace = true }
+bn254 = { workspace = true }
+eigen-logging = { workspace = true }
+governor = { workspace = true }
+commonware-p2p = { workspace = true }
+commonware-utils = { workspace = true }
+serde_json = { workspace = true }
+commonware-avs-node = { path = "../node" }
+dotenv = { workspace = true }
+commonware-avs-router = { path = "../router" }
 
 

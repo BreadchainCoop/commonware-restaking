@@ -1,11 +1,8 @@
-//! Aggregate signatures from multiple contributors over the BN254 curve.
-//!
-//! # Usage (3 of 4 Threshold)
-mod contributor;
 use ark_bn254::Fr;
 use bn254::{Bn254, PrivateKey};
 use clap::{Arg, Command};
-use commonware_avs_router::validator::interface::ValidatorTrait;
+use commonware_avs_core::validator::interface::ValidatorTrait;
+use commonware_avs_node::contributor::{AggregationInput, Contribute};
 use commonware_cryptography::sha256::Digest;
 use commonware_cryptography::{Hasher, Sha256};
 use commonware_eigenlayer::network_configuration::{EigenStakingClient, QuorumInfo};
@@ -15,7 +12,6 @@ use commonware_runtime::{
     tokio::{self},
 };
 use commonware_utils::NZU32;
-use contributor::{AggregationInput, Contribute};
 use eigen_logging::log_level::LogLevel;
 use governor::Quota;
 use serde::{Deserialize, Serialize};
@@ -110,7 +106,7 @@ async fn get_operator_states() -> Result<Vec<QuorumInfo>, Box<dyn std::error::Er
     client.get_operator_states().await
 }
 
-fn main() {
+pub fn main() {
     // Initialize runtime
     let runtime_cfg = tokio::Config::default();
     let runner = tokio::Runner::new(runtime_cfg.clone());
@@ -149,8 +145,6 @@ fn main() {
     let (signer, port) = configure_identity(&matches);
     let orchestrator_config = configure_orchestrator(&matches);
     let aggregation: bool = matches.contains_id("aggregation");
-
-    // Get operator states
 
     // Start runtime
     runner.start(|context: tokio::Context| async move {
@@ -282,14 +276,15 @@ fn main() {
             }
         }
 
-        let contributor: contributor::Contributor<contributor::Empty> =
-            contributor::Contributor::new(
-                orchestrator_pub_key,
-                signer,
-                contributors,
-                aggregation_input,
-            )
-            .with_validator(Arc::new(PassthroughValidator));
+        let contributor: commonware_avs_node::contributor::Contributor<
+            commonware_avs_node::contributor::Empty,
+        > = commonware_avs_node::contributor::Contributor::new(
+            orchestrator_pub_key,
+            signer,
+            contributors,
+            aggregation_input,
+        )
+        .with_validator(Arc::new(PassthroughValidator));
         context.spawn(|_| async move { contributor.run(sender, receiver).await });
 
         let _ = network.start().await;

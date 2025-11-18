@@ -1,13 +1,8 @@
-mod adapters;
-mod creator;
-mod executor;
-mod ingress;
-mod orchestrator;
-use crate::orchestrator::interface::OrchestratorTrait;
 use ark_bn254::Fr;
 use bn254::Bn254;
 use bn254::PrivateKey;
 use clap::{Arg, Command, value_parser};
+use commonware_avs_router::orchestrator::interface::OrchestratorTrait;
 use commonware_cryptography::Signer;
 use commonware_eigenlayer::network_configuration::{EigenStakingClient, QuorumInfo};
 use commonware_p2p::authenticated::lookup::{self, Network};
@@ -57,7 +52,7 @@ async fn get_operator_states() -> Result<Vec<QuorumInfo>, Box<dyn std::error::Er
     client.get_operator_states().await
 }
 
-fn main() {
+pub fn main() {
     // Initialize runtime
     let runtime_cfg = tokio::Config::default();
     let runner = tokio::Runner::new(runtime_cfg.clone());
@@ -85,11 +80,6 @@ fn main() {
                 .help("Port to run the service on"),
         )
         .get_matches();
-
-    // // Create logger
-    // tracing_subscriber::fmt()
-    //     .with_max_level(tracing::Level::DEBUG)
-    //     .init();
 
     // Configure my identity
     let key_file = matches
@@ -204,18 +194,18 @@ fn main() {
             network.register(0, Quota::per_second(NZU32!(1)), DEFAULT_MESSAGE_BACKLOG);
 
         // Use the builder pattern to create the orchestrator
-        let builder = crate::orchestrator::OrchestratorBuilder::new(context.clone(), signer)
+        let builder = commonware_avs_router::orchestrator::OrchestratorBuilder::new(context.clone(), signer)
             .with_contributors(contributors)
             .with_g1_map(contributors_map)
             .with_threshold(threshold)
             .load_from_env(); // Read configuration from environment variables
 
         // Build usecase components (creator, executor, validator) using the extracted crate
-        use commonware_usecase_counter as counter_uc;
+        use commonware_usecase_counter::router as counter_uc;
 
         // Creator (optionally listening)
         let use_ingress = std::env::var("INGRESS").unwrap_or_default().to_lowercase() == "true";
-        let task_creator: counter_uc::CounterCreatorType = if use_ingress {
+        let task_creator: counter_uc::creator::CounterCreatorType = if use_ingress {
             tracing::info!("Using creator with HTTP server on port 8080");
             counter_uc::factories::create_listening_creator_with_server("0.0.0.0:8080".to_string())
                 .await
@@ -235,7 +225,6 @@ fn main() {
         use commonware_avs_bindings::blssigcheckoperatorstateretriever::BLSSigCheckOperatorStateRetriever;
         use commonware_avs_bindings::WalletProvider;
         use commonware_eigenlayer::config::AvsDeployment;
-        use crate::executor::bls::BlsEigenlayerExecutor;
 
         let http_rpc = std::env::var("HTTP_RPC").expect("HTTP_RPC must be set");
         let view_only_provider = ProviderBuilder::new().on_http(url::Url::parse(&http_rpc).unwrap());
@@ -260,7 +249,7 @@ fn main() {
         );
 
         let counter_handler = counter_uc::factories::create_counter_handler(write_provider, counter_address);
-        let executor = BlsEigenlayerExecutor::new(
+        let executor = commonware_avs_router::executor::bls::BlsEigenlayerExecutor::new(
             view_only_provider,
             bls_apk_registry,
             bls_operator_state_retriever,

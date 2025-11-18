@@ -12,7 +12,6 @@ dotenv = { workspace = true }
 serde = { workspace = true }
 commonware-eigenlayer = { workspace = true }
 commonware-avs-core = { path = "../core" }
-commonware-usecase-counter = { path = "../usecase-counter" }
 commonware-avs-bindings = { path = "../bindings" }
 
 # Router-specific deps

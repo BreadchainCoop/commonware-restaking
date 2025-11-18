@@ -1,5 +1,8 @@
 // Core traits and types
 pub mod core;
+pub mod queue;
+
+pub use queue::{CreatorConfig, SimpleTaskQueue, TaskQueue};
 
 // Test module
 #[cfg(test)]

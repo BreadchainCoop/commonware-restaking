@@ -1,9 +1,9 @@
+use super::task_data::TestTaskData;
 use crate::creator::MockCreator;
 use crate::creator::core::Creator;
 use crate::executor::MockExecutor;
 use crate::orchestrator::builder::{OrchestratorBuilder, OrchestratorBuilderConfig};
 use commonware_avs_core::validator::MockValidator;
-use commonware_usecase_counter::creator::CounterTaskData;
 use std::time::Duration;
 
 use super::helpers::{contributor, signer};
@@ -214,7 +214,7 @@ async fn test_builder_build() {
         .with_g1_map(g1_map)
         .with_threshold(2);
 
-    let task_creator = MockCreator::<CounterTaskData>::new();
+    let task_creator = MockCreator::<TestTaskData>::new();
     let executor = MockExecutor::new();
     let validator = MockValidator::new_success(1);
 

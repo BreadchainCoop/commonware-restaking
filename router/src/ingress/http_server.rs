@@ -2,8 +2,8 @@ use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use std::sync::Arc;
 use tracing::info;
 
+use crate::creator::queue::{SimpleTaskQueue, TaskQueue};
 use crate::ingress::types::{TaskRequest, TaskResponse};
-use commonware_usecase_counter::creator::{SimpleTaskQueue, TaskQueue};
 
 #[allow(dead_code)]
 // Handler for POST /trigger

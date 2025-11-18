@@ -1,9 +1,9 @@
+use super::task_data::TestTaskData;
 use crate::creator::MockCreator;
 use crate::creator::core::Creator;
 use crate::executor::MockExecutor;
 use crate::orchestrator::builder::OrchestratorBuilder;
 use commonware_avs_core::validator::MockValidator;
-use commonware_usecase_counter::creator::CounterTaskData;
 use std::time::Duration;
 
 use super::helpers::{contributor, signer};
@@ -23,7 +23,7 @@ async fn test_orchestrator_builder_integration() {
         .with_aggregation_frequency(Duration::from_millis(100))
         .with_ingress("127.0.0.1:8080".to_string());
 
-    let task_creator = MockCreator::<CounterTaskData>::new();
+    let task_creator = MockCreator::<TestTaskData>::new();
     let executor = MockExecutor::new();
     let validator = MockValidator::new_success(1);
 
@@ -50,7 +50,7 @@ async fn test_orchestrator_metadata_integration() {
     let signer = signer::create_test_signer();
     let (contributors, g1_map) = contributor::create_test_contributors();
 
-    let custom_metadata = CounterTaskData {
+    let custom_metadata = TestTaskData {
         var1: "integration_test".to_string(),
         var2: "true".to_string(),
         var3: "metadata_verification".to_string(),
@@ -61,7 +61,7 @@ async fn test_orchestrator_metadata_integration() {
         .with_g1_map(g1_map)
         .with_threshold(2);
 
-    let task_creator = MockCreator::<CounterTaskData>::new().with_metadata(custom_metadata.clone());
+    let task_creator = MockCreator::<TestTaskData>::new().with_metadata(custom_metadata.clone());
     let executor = MockExecutor::new();
     let validator = MockValidator::new_success(1);
 
@@ -88,7 +88,7 @@ async fn test_orchestrator_component_access_integration() {
         .with_g1_map(g1_map)
         .with_threshold(2);
 
-    let task_creator = MockCreator::<CounterTaskData>::new();
+    let task_creator = MockCreator::<TestTaskData>::new();
     let executor = MockExecutor::new();
     let validator = MockValidator::new_success(1);
 
@@ -123,7 +123,7 @@ async fn test_orchestrator_config_integration() {
         .with_aggregation_frequency(Duration::from_secs(60))
         .with_ingress("0.0.0.0:9090".to_string());
 
-    let task_creator = MockCreator::<CounterTaskData>::new();
+    let task_creator = MockCreator::<TestTaskData>::new();
     let executor = MockExecutor::new();
     let validator = MockValidator::new_success(1);
 
@@ -157,7 +157,7 @@ async fn test_orchestrator_validation_integration() {
             .with_g1_map(g1_map.clone())
             .with_threshold(threshold);
 
-        let task_creator = MockCreator::<CounterTaskData>::new();
+        let task_creator = MockCreator::<TestTaskData>::new();
         let executor = MockExecutor::new();
         let validator = MockValidator::new_success(1);
 
@@ -195,7 +195,7 @@ async fn test_orchestrator_environment_integration() {
         .with_g1_map(g1_map)
         .load_from_env();
 
-    let task_creator = MockCreator::<CounterTaskData>::new();
+    let task_creator = MockCreator::<TestTaskData>::new();
     let executor = MockExecutor::new();
     let validator = MockValidator::new_success(1);
 
@@ -232,7 +232,7 @@ async fn test_orchestrator_component_interaction() {
         .with_g1_map(g1_map)
         .with_threshold(2);
 
-    let task_creator = MockCreator::<CounterTaskData>::new();
+    let task_creator = MockCreator::<TestTaskData>::new();
     let executor = MockExecutor::new().with_success(true);
     let validator = MockValidator::new_success(1);
 

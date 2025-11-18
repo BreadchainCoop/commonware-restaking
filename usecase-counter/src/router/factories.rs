@@ -1,7 +1,8 @@
-use crate::ingress::start_http_server;
-use crate::{
-    CounterCreator, CounterCreatorType, CounterHandler, CounterProvider, CreatorConfig,
-    ListeningCounterCreator, SimpleTaskQueue,
+use crate::router::ingress::start_http_server;
+use crate::router::{
+    creator::{CounterCreator, CounterCreatorType, ListeningCounterCreator},
+    executor::CounterHandler,
+    provider::CounterProvider,
 };
 use alloy_primitives::Address;
 use alloy_provider::ProviderBuilder;
@@ -9,6 +10,7 @@ use alloy_signer_local::PrivateKeySigner;
 use anyhow::Result;
 use commonware_avs_bindings::WalletProvider;
 use commonware_avs_bindings::counter::Counter;
+use commonware_avs_router::creator::queue::{CreatorConfig, SimpleTaskQueue};
 use commonware_eigenlayer::config::AvsDeployment;
 use std::{env, str::FromStr};
 

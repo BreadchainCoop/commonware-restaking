@@ -2,7 +2,8 @@ use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use std::sync::Arc;
 use tracing::info;
 
-use crate::creator::{SimpleTaskQueue, TaskQueue, TaskRequest, TaskResponse};
+use commonware_avs_router::creator::queue::{SimpleTaskQueue, TaskQueue};
+use commonware_avs_router::ingress::types::{TaskRequest, TaskResponse};
 
 pub async fn trigger_task_handler(
     State(queue): State<Arc<SimpleTaskQueue>>,
