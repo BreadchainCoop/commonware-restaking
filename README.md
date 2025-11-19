@@ -4,7 +4,7 @@ Monorepo for the Commonware AVS reference implementation on EigenLayer. It conta
 
 - [`core`](./core): Core protocol types, validators, wire formats, and utility code
 - [`bindings`](./bindings): Standalone crate for on-chain contract bindings
-- [`router`](./router): Generic service library for running an aggregation/orchestrator node
+- [`router`](./router): Generic service library for running an aggregation/orchestrator service
 - [`node`](./node): Generic service library for running a contributor/operator node
 - [`usecase-counter`](./usecase-counter): Implementation of the example "counter" AVS usecase —- demonstrates BLS aggregation workflow
 - [`config`](./config): Configuration files for local network, contract deployments, and test keys
