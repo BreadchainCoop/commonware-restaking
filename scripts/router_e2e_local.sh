@@ -107,7 +107,7 @@ sleep 30
 
 # Step 6: Check service health
 echo -e "${YELLOW}Step 6: Checking service health...${NC}"
-for service in node1 node2 node3 router; do
+for service in node-1 node-2 node-3 router; do
     if docker compose ps | grep -q "$service.*Up"; then
         echo "Service $service is running"
     else

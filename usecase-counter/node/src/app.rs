@@ -1,16 +1,15 @@
 use ark_bn254::Fr;
 use bn254::{Bn254, PrivateKey};
 use clap::{Arg, Command};
-use commonware_avs_core::validator::interface::ValidatorTrait;
 use commonware_avs_node::contributor::{AggregationInput, Contribute};
-use commonware_cryptography::sha256::Digest;
-use commonware_cryptography::{Hasher, Sha256};
 use commonware_eigenlayer::network_configuration::{EigenStakingClient, QuorumInfo};
 use commonware_p2p::authenticated::lookup::{self, Network};
 use commonware_runtime::{
     Metrics, Runner, Spawner,
     tokio::{self},
 };
+use commonware_usecase_counter::CounterValidator;
+use commonware_usecase_counter::types::CounterTaskData;
 use commonware_utils::NZU32;
 use eigen_logging::log_level::LogLevel;
 use governor::Quota;
@@ -256,35 +255,19 @@ pub fn main() {
             let signatures_needed = contributors.len();
             aggregation_input = Some(AggregationInput::new(signatures_needed, contributors_map));
         }
-        // Generic validator implementation that hashes the entire message bytes.
-        struct PassthroughValidator;
-        #[async_trait::async_trait]
-        impl ValidatorTrait for PassthroughValidator {
-            async fn validate_and_return_expected_hash(
-                &self,
-                msg: &[u8],
-            ) -> anyhow::Result<Digest> {
-                let mut hasher = Sha256::new();
-                hasher.update(msg);
-                Ok(hasher.finalize())
-            }
 
-            async fn get_payload_from_message(&self, msg: &[u8]) -> anyhow::Result<Digest> {
-                let mut hasher = Sha256::new();
-                hasher.update(msg);
-                Ok(hasher.finalize())
-            }
-        }
+        let counter_validator = CounterValidator::new()
+            .await
+            .expect("Failed to construct CounterValidator");
 
-        let contributor: commonware_avs_node::contributor::Contributor<
-            commonware_avs_node::contributor::Empty,
-        > = commonware_avs_node::contributor::Contributor::new(
-            orchestrator_pub_key,
-            signer,
-            contributors,
-            aggregation_input,
-        )
-        .with_validator(Arc::new(PassthroughValidator));
+        let contributor: commonware_avs_node::contributor::Contributor<CounterTaskData> =
+            commonware_avs_node::contributor::Contributor::new(
+                orchestrator_pub_key,
+                signer,
+                contributors,
+                aggregation_input,
+            )
+            .with_validator(Arc::new(counter_validator));
         context.spawn(|_| async move { contributor.run(sender, receiver).await });
 
         let _ = network.start().await;

@@ -212,7 +212,17 @@ where
 
                         let mut buf = Vec::with_capacity(msg.encode_size());
                         msg.write(&mut buf);
-                        let expected_digest = self.validator.validate_and_return_expected_hash(&buf).await.unwrap();
+                        let expected_digest = match self.validator.validate_and_return_expected_hash(&buf).await {
+                            Ok(d) => d,
+                            Err(e) => {
+                                info!(
+                                    "Validator rejected message for round {} from contributor {:?}: {}",
+                                    msg.round, contributor, e
+                                );
+                                // Likely a stale signature after the round was executed; ignore safely.
+                                continue;
+                            }
+                        };
                         info!("Verifying signature for round: {} from contributor: {:?}, expected digest: {}",
                               msg.round, contributor, hex(&expected_digest));
 

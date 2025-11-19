@@ -1,4 +1,3 @@
-use commonware_usecase_counter::types::CounterTaskData;
 use alloy_primitives::{Bytes, FixedBytes};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -9,6 +8,7 @@ use commonware_avs_core::traits::ExecutionResult;
 use commonware_avs_router::executor::bls::{
     BlsSignatureVerificationHandler, convert_non_signer_data,
 };
+use commonware_usecase_counter::types::CounterTaskData;
 
 pub struct CounterHandler {
     pub counter: Counter::CounterInstance<(), WalletProvider>,
