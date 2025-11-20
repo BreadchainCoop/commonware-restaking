@@ -1,5 +1,5 @@
+use alloy::primitives::U256;
 use alloy::sol_types::SolValue;
-use alloy_primitives::U256;
 use anyhow::Result;
 use commonware_cryptography::sha256::Digest;
 use commonware_cryptography::{Hasher, Sha256};

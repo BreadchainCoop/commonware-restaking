@@ -5,7 +5,6 @@ use tracing::info;
 use crate::creator::queue::{SimpleTaskQueue, TaskQueue};
 use crate::ingress::types::{TaskRequest, TaskResponse};
 
-#[allow(dead_code)]
 // Handler for POST /trigger
 pub async fn trigger_task_handler(
     State(queue): State<Arc<SimpleTaskQueue>>,
@@ -32,7 +31,6 @@ pub async fn trigger_task_handler(
     )
 }
 
-#[allow(dead_code)]
 // Start the HTTP server in a background task
 pub async fn start_http_server(queue: Arc<SimpleTaskQueue>, addr: &str) {
     let app = Router::new()
