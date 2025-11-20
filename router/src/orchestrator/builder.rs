@@ -255,7 +255,7 @@ impl<C: Clock> OrchestratorBuilder<C> {
         task_creator: TC,
         executor: E,
         validator: V,
-    ) -> Result<crate::orchestrator::generic::Orchestrator<TC, E, V, C>, Box<dyn std::error::Error>>
+    ) -> Result<crate::orchestrator::types::Orchestrator<TC, E, V, C>, Box<dyn std::error::Error>>
     where
         TC: crate::creator::Creator + Send + Sync,
         E: VerificationExecutor<TC::TaskData, VerificationData> + Send + Sync,
@@ -270,14 +270,14 @@ impl<C: Clock> OrchestratorBuilder<C> {
             "Building generic orchestrator"
         );
 
-        let config = crate::orchestrator::generic::OrchestratorConfig {
+        let config = crate::orchestrator::types::OrchestratorConfig {
             aggregation_frequency: self.config.aggregation_frequency,
             contributors: self.contributors,
             g1_map: self.g1_map,
             threshold: self.config.threshold,
         };
 
-        Ok(crate::orchestrator::generic::Orchestrator::new(
+        Ok(crate::orchestrator::types::Orchestrator::new(
             self.runtime,
             self.signer,
             config,

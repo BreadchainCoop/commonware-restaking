@@ -6,7 +6,7 @@ use ark_bn254::Fr;
 use bn254::Bn254;
 use bn254::PrivateKey;
 use clap::{Arg, Command, value_parser};
-use commonware_avs_router::orchestrator::interface::OrchestratorTrait;
+use commonware_avs_router::orchestrator::traits::OrchestratorTrait;
 use commonware_cryptography::Signer;
 use commonware_eigenlayer::network_configuration::{EigenStakingClient, QuorumInfo};
 use commonware_p2p::authenticated::lookup::{self, Network};
@@ -198,7 +198,7 @@ pub fn main() {
             network.register(0, Quota::per_second(NZU32!(1)), DEFAULT_MESSAGE_BACKLOG);
 
         // Use the builder pattern to create the orchestrator
-        let builder = commonware_avs_router::orchestrator::OrchestratorBuilder::new(context.clone(), signer)
+        let builder = commonware_avs_router::orchestrator::builder::OrchestratorBuilder::new(context.clone(), signer)
             .with_contributors(contributors)
             .with_g1_map(contributors_map)
             .with_threshold(threshold)

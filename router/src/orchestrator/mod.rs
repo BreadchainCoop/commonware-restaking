@@ -6,12 +6,9 @@
 
 // Public modules
 pub mod builder;
-pub mod generic;
-pub mod interface;
+pub mod traits;
+pub mod types;
 
 // Test module
 #[cfg(test)]
 pub mod tests;
-
-// Re-export main types for easy access
-pub use builder::OrchestratorBuilder;

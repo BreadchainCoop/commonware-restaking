@@ -2,7 +2,7 @@ use super::task_data::TestTaskData;
 use crate::creator::Creator;
 use crate::creator::MockCreator;
 use crate::executor::MockExecutor;
-use crate::orchestrator::generic::{Orchestrator, OrchestratorConfig};
+use crate::orchestrator::types::{Orchestrator, OrchestratorConfig};
 use commonware_avs_core::validator::MockValidator;
 use std::time::Duration;
 

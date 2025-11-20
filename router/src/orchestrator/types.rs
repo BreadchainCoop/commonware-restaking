@@ -12,7 +12,7 @@ use tracing::info;
 use crate::creator::Creator;
 use crate::executor::VerificationExecutor;
 use crate::executor::types::VerificationData;
-use crate::orchestrator::interface::OrchestratorTrait;
+use crate::orchestrator::traits::OrchestratorTrait;
 use commonware_avs_core::validator::ValidatorTrait;
 use commonware_avs_core::wire::{Aggregation, aggregation::Payload};
 
