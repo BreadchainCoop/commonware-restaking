@@ -1,6 +1,6 @@
 use super::task_data::TestTaskData;
+use crate::creator::Creator;
 use crate::creator::MockCreator;
-use crate::creator::core::Creator;
 use crate::executor::MockExecutor;
 use crate::orchestrator::builder::{OrchestratorBuilder, OrchestratorBuilderConfig};
 use commonware_avs_core::validator::MockValidator;

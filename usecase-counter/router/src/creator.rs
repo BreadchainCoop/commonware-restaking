@@ -4,11 +4,9 @@ use std::sync::Arc;
 use tracing::error;
 
 use crate::provider::CounterProvider;
-use commonware_avs_router::creator::queue::{CreatorConfig, SimpleTaskQueue, TaskQueue};
+use commonware_avs_router::creator::{Creator, CreatorConfig, SimpleTaskQueue, TaskQueue};
 use commonware_avs_router::ingress::types::TaskRequest;
 use commonware_usecase_counter::types::CounterTaskData;
-
-use commonware_avs_core::traits::Creator;
 
 #[allow(unused_imports)]
 use serde::{Deserialize, Serialize};

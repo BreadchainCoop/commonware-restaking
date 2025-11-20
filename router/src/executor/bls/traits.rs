@@ -1,8 +1,8 @@
+use crate::executor::ExecutionResult;
 use alloy_primitives::{Bytes, FixedBytes};
 use anyhow::Result;
 use async_trait::async_trait;
 use commonware_avs_bindings::blssigcheckoperatorstateretriever::BLSSigCheckOperatorStateRetriever::getNonSignerStakesAndSignatureReturn;
-use commonware_avs_core::traits::ExecutionResult;
 
 use super::types::BlsVerificationData;
 

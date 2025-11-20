@@ -19,8 +19,8 @@ use tracing::debug;
 
 use super::traits::{BlsExecutorTrait, BlsSignatureVerificationHandler};
 use super::types::BlsVerificationData;
-use commonware_avs_core::traits::{ExecutionResult, VerificationExecutor};
-use commonware_avs_core::types::VerificationData;
+use crate::executor::types::VerificationData;
+use crate::executor::{ExecutionResult, VerificationExecutor};
 
 pub struct BlsEigenlayerExecutor<H> {
     view_only_provider: ReadOnlyProvider,
@@ -88,7 +88,7 @@ impl<H> BlsEigenlayerExecutor<H> {
 }
 
 #[async_trait]
-impl<H: BlsSignatureVerificationHandler> VerificationExecutor<H::TaskData>
+impl<H: BlsSignatureVerificationHandler> VerificationExecutor<H::TaskData, VerificationData>
     for BlsEigenlayerExecutor<H>
 {
     async fn execute_verification(
@@ -97,10 +97,31 @@ impl<H: BlsSignatureVerificationHandler> VerificationExecutor<H::TaskData>
         verification_data: VerificationData,
         task_data: Option<&H::TaskData>,
     ) -> Result<ExecutionResult> {
+        // Convert generic VerificationData to BLS-specific BlsVerificationData
+        // Deserialize signatures
+        let signatures: Vec<bn254::Signature> = verification_data
+            .signatures
+            .iter()
+            .map(|bytes| {
+                bn254::Signature::try_from(bytes.as_slice())
+                    .map_err(|e| anyhow::anyhow!("Failed to deserialize signature: {:?}", e))
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        // Deserialize public keys
+        let public_keys: Vec<bn254::PublicKey> = verification_data
+            .public_keys
+            .iter()
+            .map(|bytes| {
+                bn254::PublicKey::try_from(bytes.as_slice())
+                    .map_err(|e| anyhow::anyhow!("Failed to deserialize public key: {:?}", e))
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        // Deserialize G1 public keys from context
         let g1_public_keys = if let Some(context) = verification_data.context {
-            // Each G1 public key is stored in compressed format (32 bytes)
             const G1_COMPRESSED_SIZE: usize = 32;
-            let num_public_keys = verification_data.public_keys.len();
+            let num_public_keys = public_keys.len();
             if num_public_keys == 0 {
                 return Err(anyhow::anyhow!("No public keys provided"));
             }
@@ -116,12 +137,10 @@ impl<H: BlsSignatureVerificationHandler> VerificationExecutor<H::TaskData>
 
             let mut g1_keys = Vec::new();
             for chunk in context.chunks(G1_COMPRESSED_SIZE) {
-                // Deserialize the compressed G1 public key directly
-                let g1_pubkey = G1PublicKey::try_from(chunk)
+                let g1_pubkey = bn254::G1PublicKey::try_from(chunk)
                     .map_err(|e| anyhow::anyhow!("Failed to deserialize G1 public key: {:?}", e))?;
                 g1_keys.push(g1_pubkey);
             }
-
             g1_keys
         } else {
             return Err(anyhow::anyhow!(
@@ -129,11 +148,8 @@ impl<H: BlsSignatureVerificationHandler> VerificationExecutor<H::TaskData>
             ));
         };
 
-        let bls_verification_data = BlsVerificationData::new(
-            verification_data.signatures,
-            verification_data.public_keys,
-            g1_public_keys,
-        );
+        let bls_verification_data =
+            BlsVerificationData::new(signatures, public_keys, g1_public_keys);
 
         self.execute_bls_verification(payload_hash, bls_verification_data, task_data)
             .await

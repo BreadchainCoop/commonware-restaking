@@ -5,7 +5,7 @@ use commonware_cryptography::sha256::Digest;
 use commonware_cryptography::{Hasher, Sha256};
 use std::sync::{Arc, Mutex};
 
-use crate::validator::interface::ValidatorTrait;
+use crate::validator::ValidatorTrait;
 
 /// Mock validator implementation for testing purposes.
 ///

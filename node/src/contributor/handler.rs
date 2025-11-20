@@ -6,8 +6,8 @@ use bn254::{
     aggregate_verify,
 };
 use bytes::Bytes;
-use commonware_avs_core::types::{self as wire, aggregation::Payload};
-use commonware_avs_core::validator::interface::ValidatorTrait;
+use commonware_avs_core::validator::ValidatorTrait;
+use commonware_avs_core::wire::{self, aggregation::Payload};
 use commonware_codec::{EncodeSize, ReadExt, Write};
 use commonware_cryptography::Signer;
 use commonware_p2p::{Receiver, Sender};

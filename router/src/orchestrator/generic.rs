@@ -9,11 +9,12 @@ use commonware_utils::hex;
 use std::{collections::HashMap, time::Duration};
 use tracing::info;
 
-use crate::creator::core::Creator;
+use crate::creator::Creator;
+use crate::executor::VerificationExecutor;
+use crate::executor::types::VerificationData;
 use crate::orchestrator::interface::OrchestratorTrait;
-use commonware_avs_core::traits::VerificationExecutor;
-use commonware_avs_core::types::{Aggregation, VerificationData, aggregation::Payload};
-use commonware_avs_core::validator::interface::ValidatorTrait;
+use commonware_avs_core::validator::ValidatorTrait;
+use commonware_avs_core::wire::{Aggregation, aggregation::Payload};
 
 /// Configuration for the generic orchestrator
 #[derive(Debug, Clone)]
@@ -39,7 +40,7 @@ pub struct OrchestratorConfig {
 pub struct Orchestrator<TC, E, V, C>
 where
     TC: Creator,
-    E: VerificationExecutor<TC::TaskData>,
+    E: VerificationExecutor<TC::TaskData, VerificationData>,
     V: ValidatorTrait,
     C: Clock,
 {
@@ -59,7 +60,7 @@ where
 impl<TC, E, V, C> Orchestrator<TC, E, V, C>
 where
     TC: Creator,
-    E: VerificationExecutor<TC::TaskData>,
+    E: VerificationExecutor<TC::TaskData, VerificationData>,
     V: ValidatorTrait,
     C: Clock,
 {
@@ -112,7 +113,7 @@ where
 impl<TC, E, V, C> OrchestratorTrait for Orchestrator<TC, E, V, C>
 where
     TC: Creator + Send + Sync,
-    E: VerificationExecutor<TC::TaskData> + Send + Sync,
+    E: VerificationExecutor<TC::TaskData, VerificationData> + Send + Sync,
     V: ValidatorTrait + Send + Sync,
     C: Clock + Send + Sync,
 {
@@ -267,14 +268,17 @@ where
                         }
 
                         // Execute verification with the aggregated signature
-                        // Create verification data with G1 public keys in context
+                        // Serialize BLS-specific types to bytes for generic VerificationData
+                        let serialized_signatures: Vec<Vec<u8>> = signatures.iter().map(|s| s.to_vec()).collect();
+                        let serialized_public_keys: Vec<Vec<u8>> = participating.iter().map(|pk| pk.to_vec()).collect();
+
+                        // Serialize G1 public keys to context
                         let mut context = Vec::new();
                         for g1_pubkey in &participating_g1 {
-                            // Serialize G1 public key using its raw compressed format (32 bytes)
                             context.extend_from_slice(g1_pubkey);
                         }
 
-                        let verification_data = VerificationData::new(signatures, participating)
+                        let verification_data = VerificationData::new(serialized_signatures, serialized_public_keys)
                             .with_context(context);
 
                         match self.executor.execute_verification(
@@ -307,7 +311,7 @@ where
 impl<TC, E, V, C> Orchestrator<TC, E, V, C>
 where
     TC: Creator,
-    E: VerificationExecutor<TC::TaskData>,
+    E: VerificationExecutor<TC::TaskData, VerificationData>,
     V: ValidatorTrait,
     C: Clock,
 {

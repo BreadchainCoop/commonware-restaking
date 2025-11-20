@@ -2,6 +2,11 @@
 
 // Public modules
 pub mod bls;
+pub mod traits;
+pub mod types;
+
+// Re-export traits for easy access
+pub use traits::{ExecutionResult, VerificationExecutor};
 
 // Test module
 #[cfg(test)]

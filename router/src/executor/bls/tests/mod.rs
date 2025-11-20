@@ -1,3 +1,4 @@
+use crate::executor::ExecutionResult;
 use crate::executor::bls::{BlsSignatureVerificationHandler, convert_non_signer_data};
 use alloy_primitives::{Bytes, FixedBytes, U256};
 use anyhow::Result;
@@ -6,7 +7,6 @@ use commonware_avs_bindings::blssigcheckoperatorstateretriever::{
     BLSSigCheckOperatorStateRetriever::getNonSignerStakesAndSignatureReturn, BN254,
     IBLSSignatureCheckerTypes,
 };
-use commonware_avs_core::traits::ExecutionResult;
 
 /// Mock implementation of BlsSignatureVerificationHandler for testing purposes.
 #[derive(Debug)]

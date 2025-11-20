@@ -20,6 +20,7 @@ use alloy_provider::{
     fillers::{BlobGasFiller, ChainIdFiller, GasFiller, JoinFill, NonceFiller, WalletFiller},
 };
 
+// Type alias for provider with wallet capabilities (for transactions)
 pub type WalletProvider = FillProvider<
     JoinFill<
         JoinFill<
@@ -31,6 +32,7 @@ pub type WalletProvider = FillProvider<
     RootProvider,
 >;
 
+// Type alias for read-only provider (without wallet, for queries)
 pub type ReadOnlyProvider = FillProvider<
     JoinFill<
         alloy_provider::Identity,
