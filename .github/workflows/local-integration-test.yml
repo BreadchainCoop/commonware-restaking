@@ -129,11 +129,11 @@ jobs:
       - name: Build and run router with cargo
         run: |
           echo "Building router with cargo..."
-          cargo build -p commonware-avs-router --release
+          cargo build -p commonware-avs-router-app --release
 
           echo "Starting router in background..."
           # Source environment and run router in background
-          nohup cargo run -p commonware-avs-router --release -- --key-file config/router_orchestrator.json --port 3000 > router.log 2>&1 &
+          nohup cargo run -p commonware-avs-router-app --release -- --key-file config/router_orchestrator.json --port 3000 > router.log 2>&1 &
           echo $! > router.pid
 
           # Wait for router to start
