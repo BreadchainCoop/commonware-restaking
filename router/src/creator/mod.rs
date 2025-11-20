@@ -13,5 +13,4 @@ pub mod tests;
 
 // Re-export test utilities
 #[cfg(test)]
-#[allow(unused_imports)]
 pub use tests::mock::MockCreator;

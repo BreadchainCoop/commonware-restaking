@@ -19,8 +19,7 @@ use tracing::debug;
 
 use super::traits::{BlsExecutorTrait, BlsSignatureVerificationHandler};
 use super::types::BlsVerificationData;
-use crate::executor::types::VerificationData;
-use crate::executor::{ExecutionResult, VerificationExecutor};
+use crate::executor::{ExecutionResult, VerificationData, VerificationExecutor};
 
 pub struct BlsEigenlayerExecutor<H> {
     view_only_provider: ReadOnlyProvider,

@@ -1,5 +1,7 @@
 use bn254::{Bn254, G1PublicKey, PublicKey, Signature as Bn254Signature};
 use bytes::Bytes;
+use commonware_avs_core::validator::ValidatorTrait;
+use commonware_avs_core::wire::{Aggregation, aggregation::Payload};
 use commonware_codec::{EncodeSize, ReadExt, Write};
 use commonware_cryptography::{Hasher, Sha256, Verifier};
 use commonware_macros::select;
@@ -10,11 +12,8 @@ use std::{collections::HashMap, time::Duration};
 use tracing::info;
 
 use crate::creator::Creator;
-use crate::executor::VerificationExecutor;
-use crate::executor::types::VerificationData;
+use crate::executor::{VerificationData, VerificationExecutor};
 use crate::orchestrator::traits::OrchestratorTrait;
-use commonware_avs_core::validator::ValidatorTrait;
-use commonware_avs_core::wire::{Aggregation, aggregation::Payload};
 
 /// Configuration for the generic orchestrator
 #[derive(Debug, Clone)]

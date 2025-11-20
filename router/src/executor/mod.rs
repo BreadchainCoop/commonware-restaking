@@ -1,23 +1,13 @@
-//! Executor module for the commonware-avs-router.
-
-// Public modules
 pub mod bls;
 pub mod traits;
 pub mod types;
 
-// Re-export traits for easy access
+pub use bls::{BlsEigenlayerExecutor, convert_non_signer_data};
 pub use traits::VerificationExecutor;
-pub use types::ExecutionResult;
+pub use types::{ExecutionResult, VerificationData};
 
-// Test module
 #[cfg(test)]
 pub mod tests;
 
-// Re-export the main types for easy access
-#[allow(unused_imports)]
-pub use bls::{BlsEigenlayerExecutor, convert_non_signer_data};
-
-// Re-export test utilities
 #[cfg(test)]
-#[allow(unused_imports)]
 pub use tests::mock::MockExecutor;

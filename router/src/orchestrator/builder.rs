@@ -1,11 +1,11 @@
-use crate::executor::VerificationExecutor;
-use crate::executor::types::VerificationData;
 use bn254::{Bn254, G1PublicKey, PublicKey};
 use commonware_avs_core::validator::ValidatorTrait;
 use commonware_runtime::Clock;
 use std::collections::HashMap;
 use std::time::Duration;
 use tracing::info;
+
+use crate::executor::{VerificationData, VerificationExecutor};
 
 /// Configuration bundle returned by the orchestrator builder
 #[allow(dead_code)]
