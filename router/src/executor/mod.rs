@@ -6,7 +6,8 @@ pub mod traits;
 pub mod types;
 
 // Re-export traits for easy access
-pub use traits::{ExecutionResult, VerificationExecutor};
+pub use traits::VerificationExecutor;
+pub use types::ExecutionResult;
 
 // Test module
 #[cfg(test)]
