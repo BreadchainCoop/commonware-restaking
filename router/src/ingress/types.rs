@@ -3,7 +3,6 @@ use std::collections::HashMap;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TaskRequestBody {
-    #[serde(default)]
     pub metadata: HashMap<String, String>,
 }
 

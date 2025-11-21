@@ -1,5 +1,14 @@
 [workspace]
-members = ["node", "router", "shared", "scripts"]
+members = [
+    "bindings",
+    "core",
+    "node",
+    "router",
+    "scripts",
+    "usecase-counter",
+    "usecase-counter/node",
+    "usecase-counter/router",
+]
 resolver = "2"
 
 [workspace.package]
@@ -8,53 +17,53 @@ edition = "2024"
 [workspace.dependencies]
 # Core dependencies shared across packages
 alloy = { version = "0.12.6" }
-tokio = { version = "1.0", features = ["full"] }
-url = { version = "2.5.4", features = ["serde"] }
-dotenv = "0.15.0"
-serde = { version = "1.0.219", features = ["derive"] }
-commonware-eigenlayer = { git = "https://github.com/BreadchainCoop/commonware-avs-network-lookup" }
-anyhow = "1.0"
-async-trait = "0.1"
-bytes = "1.10.1"
-clap = "4.5.37"
-futures = "0.3.31"
-futures-util = "0.3.31"
-governor = "0.6.3"
-prometheus-client = "0.23.1"
-prost = "0.13.5"
-prost-build = "0.13.5"
-rand = "0.9.1"
-serde_json = "1.0.140"
-serde_yaml = "0.9.34"
-tracing = "0.1.41"
-tracing-subscriber = "0.3.19"
-hex = "0.4"
-num-bigint = "0.4"
-axum = "0.7"
-tower = "0.4"
-tower-http = "0.5"
-eigen-logging = "0.1.3"
+alloy-network = "0.5.4"
+alloy-primitives = "0.8.25"
 # Alloy ecosystem
 alloy-provider = "0.12.6"
 alloy-signer = "0.12.6"
 alloy-signer-local = "0.12.6"
-alloy-primitives = "0.8.25"
-alloy-network = "0.5.4"
+anyhow = "1.0"
 # Arkworks and bn254
 ark-bn254 = "0.5.0"
 ark-ec = "0.5.0"
 ark-ff = "0.5.0"
 ark-serialize = "0.5.0"
+async-trait = "0.1"
+axum = "0.7"
 bn254 = { git = "https://github.com/BreadchainCoop/bn254.git" }
-eigen-crypto-bls = "0.5.0"
-eigen-crypto-bn254 = "0.5.0"
+bytes = "1.10.1"
+clap = "4.5.37"
 # Commonware crates
 commonware-codec = "0.0.56"
 commonware-cryptography = "0.0.56"
+commonware-eigenlayer = { git = "https://github.com/BreadchainCoop/commonware-avs-network-lookup" }
 commonware-macros = "0.0.56"
 commonware-p2p = "0.0.56"
 commonware-runtime = "0.0.56"
 commonware-utils = "0.0.56"
+dotenv = "0.15.0"
+eigen-crypto-bls = "0.5.0"
+eigen-crypto-bn254 = "0.5.0"
+eigen-logging = "0.1.3"
+futures = "0.3.31"
+futures-util = "0.3.31"
+governor = "0.6.3"
+hex = "0.4"
+num-bigint = "0.4"
+prometheus-client = "0.23.1"
+prost = "0.13.5"
+prost-build = "0.13.5"
+rand = "0.9.1"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+serde_yaml = "0.9.34"
+tokio = { version = "1.0", features = ["full"] }
+tower = "0.4"
+tower-http = "0.5"
+tracing = "0.1.41"
+tracing-subscriber = "0.3.19"
+url = { version = "2.5.4", features = ["serde"] }
 
 [patch.crates-io]
 deranged = { git = "https://github.com/jhpratt/deranged", rev = "3c95431a375bca409a4731ae8749acc84e076267" }

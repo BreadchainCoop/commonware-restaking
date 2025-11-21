@@ -2,8 +2,8 @@ use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use std::sync::Arc;
 use tracing::info;
 
+use crate::creator::queue::{SimpleTaskQueue, TaskQueue};
 use crate::ingress::types::{TaskRequest, TaskResponse};
-use crate::usecases::counter::creator::{SimpleTaskQueue, TaskQueue};
 
 // Handler for POST /trigger
 pub async fn trigger_task_handler(

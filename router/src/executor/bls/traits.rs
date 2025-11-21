@@ -1,7 +1,8 @@
-use commonware_avs_shared::bindings::blssigcheckoperatorstateretriever::BLSSigCheckOperatorStateRetriever::getNonSignerStakesAndSignatureReturn;
+use crate::executor::ExecutionResult;
 use alloy_primitives::{Bytes, FixedBytes};
 use anyhow::Result;
 use async_trait::async_trait;
+use commonware_avs_bindings::blssigcheckoperatorstateretriever::BLSSigCheckOperatorStateRetriever::getNonSignerStakesAndSignatureReturn;
 
 use super::types::BlsVerificationData;
 
@@ -16,7 +17,7 @@ where
         payload_hash: &[u8],
         verification_data: BlsVerificationData,
         task_data: Option<&T>,
-    ) -> Result<crate::executor::core::ExecutionResult>;
+    ) -> Result<ExecutionResult>;
 }
 
 /// Contract-specific handler for BLS signature verification in EigenLayer context
@@ -31,5 +32,5 @@ pub trait BlsSignatureVerificationHandler: Send + Sync {
         current_block_number: u32,
         non_signer_data: getNonSignerStakesAndSignatureReturn,
         task_data: Option<&Self::TaskData>,
-    ) -> Result<crate::executor::core::ExecutionResult>;
+    ) -> Result<ExecutionResult>;
 }

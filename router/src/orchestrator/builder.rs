@@ -1,9 +1,11 @@
 use bn254::{Bn254, G1PublicKey, PublicKey};
-use commonware_avs_shared::validator::interface::ValidatorTrait;
+use commonware_avs_core::validator::ValidatorTrait;
 use commonware_runtime::Clock;
 use std::collections::HashMap;
 use std::time::Duration;
 use tracing::info;
+
+use crate::executor::{VerificationData, VerificationExecutor};
 
 /// Configuration bundle returned by the orchestrator builder
 #[allow(dead_code)]
@@ -253,10 +255,10 @@ impl<C: Clock> OrchestratorBuilder<C> {
         task_creator: TC,
         executor: E,
         validator: V,
-    ) -> Result<crate::orchestrator::generic::Orchestrator<TC, E, V, C>, Box<dyn std::error::Error>>
+    ) -> Result<crate::orchestrator::types::Orchestrator<TC, E, V, C>, Box<dyn std::error::Error>>
     where
-        TC: crate::creator::core::Creator + Send + Sync,
-        E: crate::executor::core::VerificationExecutor<TC::TaskData> + Send + Sync,
+        TC: crate::creator::Creator + Send + Sync,
+        E: VerificationExecutor<TC::TaskData, VerificationData> + Send + Sync,
         V: ValidatorTrait + Send + Sync,
     {
         self.validate()?;
@@ -268,14 +270,14 @@ impl<C: Clock> OrchestratorBuilder<C> {
             "Building generic orchestrator"
         );
 
-        let config = crate::orchestrator::generic::OrchestratorConfig {
+        let config = crate::orchestrator::types::OrchestratorConfig {
             aggregation_frequency: self.config.aggregation_frequency,
             contributors: self.contributors,
             g1_map: self.g1_map,
             threshold: self.config.threshold,
         };
 
-        Ok(crate::orchestrator::generic::Orchestrator::new(
+        Ok(crate::orchestrator::types::Orchestrator::new(
             self.runtime,
             self.signer,
             config,

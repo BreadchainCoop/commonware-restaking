@@ -2,7 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
 
-use crate::creator::core::Creator;
+use crate::creator::Creator;
 
 /// Mock creator implementation for testing purposes.
 ///

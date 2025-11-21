@@ -149,6 +149,18 @@ impl MockReceiver {
     }
 }
 
+impl Default for MockSender {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Default for MockReceiver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl commonware_p2p::Sender for MockSender {
     type Error = MockError;
     type PublicKey = PublicKey;
