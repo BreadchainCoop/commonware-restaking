@@ -1,4 +1,4 @@
-// Counter contract bindings generated at compile time from ABI
+// BLSSigCheckOperatorStateRetriever contract bindings generated at compile time from ABI
 alloy::sol! {
     #[sol(rpc)]
     BLSSigCheckOperatorStateRetriever,
