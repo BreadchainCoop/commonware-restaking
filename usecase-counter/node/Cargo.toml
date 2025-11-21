@@ -11,7 +11,6 @@ path = "src/app.rs"
 commonware-usecase-counter = { path = ".." }
 commonware-avs-node = { path = "../../node" }
 commonware-avs-router = { path = "../../router" }
-commonware-eigenlayer = { workspace = true }
 commonware-cryptography = { workspace = true }
 commonware-runtime = { workspace = true }
 commonware-p2p = { workspace = true }

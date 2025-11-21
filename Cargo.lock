@@ -3097,7 +3097,6 @@ dependencies = [
  "bytes",
  "clap",
  "commonware-avs-core",
- "commonware-avs-router",
  "commonware-codec",
  "commonware-cryptography",
  "commonware-eigenlayer",

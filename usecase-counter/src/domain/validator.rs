@@ -8,10 +8,11 @@ use commonware_avs_core::wire;
 use commonware_codec::{DecodeExt, ReadExt};
 use commonware_cryptography::sha256::Digest;
 use commonware_cryptography::{Hasher, Sha256};
-use commonware_eigenlayer::config::AvsDeployment;
 use std::{env, io::Cursor};
 
 use commonware_avs_core::validator::ValidatorTrait;
+
+use crate::AvsDeployment;
 
 pub struct CounterValidator {
     counter: Counter::CounterInstance<(), ReadOnlyProvider>,

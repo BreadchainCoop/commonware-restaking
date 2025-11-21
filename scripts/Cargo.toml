@@ -10,7 +10,6 @@ path = "verify_increments.rs"
 [dependencies]
 alloy = { workspace = true }
 tokio = { workspace = true }
-commonware-eigenlayer = { workspace = true }
 url = { workspace = true }
 dotenv = { workspace = true }
 serde = { workspace = true }

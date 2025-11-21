@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-commonware-avs-router = { path = "../router" }
 commonware-avs-core = { path = "../core" }
 async-trait = { workspace = true }
 
@@ -38,7 +37,6 @@ governor = { workspace = true }
 prometheus-client = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
-commonware-eigenlayer = { workspace = true }
 serde = { workspace = true }
 serde_yaml = { workspace = true }
 tracing = { workspace = true }

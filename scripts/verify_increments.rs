@@ -1,6 +1,6 @@
 use alloy::providers::ProviderBuilder;
 use commonware_avs_router::bindings::counter::Counter;
-use commonware_eigenlayer::config::AvsDeployment;
+use commonware_usecase_counter::AvsDeployment;
 use std::{env, time::Duration};
 use tokio::time::sleep;
 
