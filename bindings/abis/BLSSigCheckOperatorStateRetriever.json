@@ -1,0 +1,398 @@
+[
+    {
+        "type": "function",
+        "name": "getBatchOperatorFromId",
+        "inputs": [
+            {
+                "name": "registryCoordinator",
+                "type": "address",
+                "internalType": "contract ISlashingRegistryCoordinator"
+            },
+            {
+                "name": "operatorIds",
+                "type": "bytes32[]",
+                "internalType": "bytes32[]"
+            }
+        ],
+        "outputs": [
+            {
+                "name": "operators",
+                "type": "address[]",
+                "internalType": "address[]"
+            }
+        ],
+        "stateMutability": "view"
+    },
+    {
+        "type": "function",
+        "name": "getBatchOperatorId",
+        "inputs": [
+            {
+                "name": "registryCoordinator",
+                "type": "address",
+                "internalType": "contract ISlashingRegistryCoordinator"
+            },
+            {
+                "name": "operators",
+                "type": "address[]",
+                "internalType": "address[]"
+            }
+        ],
+        "outputs": [
+            {
+                "name": "operatorIds",
+                "type": "bytes32[]",
+                "internalType": "bytes32[]"
+            }
+        ],
+        "stateMutability": "view"
+    },
+    {
+        "type": "function",
+        "name": "getCheckSignaturesIndices",
+        "inputs": [
+            {
+                "name": "registryCoordinator",
+                "type": "address",
+                "internalType": "contract ISlashingRegistryCoordinator"
+            },
+            {
+                "name": "referenceBlockNumber",
+                "type": "uint32",
+                "internalType": "uint32"
+            },
+            {
+                "name": "quorumNumbers",
+                "type": "bytes",
+                "internalType": "bytes"
+            },
+            {
+                "name": "nonSignerOperatorIds",
+                "type": "bytes32[]",
+                "internalType": "bytes32[]"
+            }
+        ],
+        "outputs": [
+            {
+                "name": "",
+                "type": "tuple",
+                "internalType": "struct OperatorStateRetriever.CheckSignaturesIndices",
+                "components": [
+                    {
+                        "name": "nonSignerQuorumBitmapIndices",
+                        "type": "uint32[]",
+                        "internalType": "uint32[]"
+                    },
+                    {
+                        "name": "quorumApkIndices",
+                        "type": "uint32[]",
+                        "internalType": "uint32[]"
+                    },
+                    {
+                        "name": "totalStakeIndices",
+                        "type": "uint32[]",
+                        "internalType": "uint32[]"
+                    },
+                    {
+                        "name": "nonSignerStakeIndices",
+                        "type": "uint32[][]",
+                        "internalType": "uint32[][]"
+                    }
+                ]
+            }
+        ],
+        "stateMutability": "view"
+    },
+    {
+        "type": "function",
+        "name": "getNonSignerStakesAndSignature",
+        "inputs": [
+            {
+                "name": "registryCoordinator",
+                "type": "address",
+                "internalType": "contract ISlashingRegistryCoordinator"
+            },
+            {
+                "name": "quorumNumbers",
+                "type": "bytes",
+                "internalType": "bytes"
+            },
+            {
+                "name": "sigma",
+                "type": "tuple",
+                "internalType": "struct BN254.G1Point",
+                "components": [
+                    {
+                        "name": "X",
+                        "type": "uint256",
+                        "internalType": "uint256"
+                    },
+                    {
+                        "name": "Y",
+                        "type": "uint256",
+                        "internalType": "uint256"
+                    }
+                ]
+            },
+            {
+                "name": "operators",
+                "type": "address[]",
+                "internalType": "address[]"
+            },
+            {
+                "name": "blockNumber",
+                "type": "uint32",
+                "internalType": "uint32"
+            }
+        ],
+        "outputs": [
+            {
+                "name": "",
+                "type": "tuple",
+                "internalType": "struct IBLSSignatureCheckerTypes.NonSignerStakesAndSignature",
+                "components": [
+                    {
+                        "name": "nonSignerQuorumBitmapIndices",
+                        "type": "uint32[]",
+                        "internalType": "uint32[]"
+                    },
+                    {
+                        "name": "nonSignerPubkeys",
+                        "type": "tuple[]",
+                        "internalType": "struct BN254.G1Point[]",
+                        "components": [
+                            {
+                                "name": "X",
+                                "type": "uint256",
+                                "internalType": "uint256"
+                            },
+                            {
+                                "name": "Y",
+                                "type": "uint256",
+                                "internalType": "uint256"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "quorumApks",
+                        "type": "tuple[]",
+                        "internalType": "struct BN254.G1Point[]",
+                        "components": [
+                            {
+                                "name": "X",
+                                "type": "uint256",
+                                "internalType": "uint256"
+                            },
+                            {
+                                "name": "Y",
+                                "type": "uint256",
+                                "internalType": "uint256"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "apkG2",
+                        "type": "tuple",
+                        "internalType": "struct BN254.G2Point",
+                        "components": [
+                            {
+                                "name": "X",
+                                "type": "uint256[2]",
+                                "internalType": "uint256[2]"
+                            },
+                            {
+                                "name": "Y",
+                                "type": "uint256[2]",
+                                "internalType": "uint256[2]"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "sigma",
+                        "type": "tuple",
+                        "internalType": "struct BN254.G1Point",
+                        "components": [
+                            {
+                                "name": "X",
+                                "type": "uint256",
+                                "internalType": "uint256"
+                            },
+                            {
+                                "name": "Y",
+                                "type": "uint256",
+                                "internalType": "uint256"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "quorumApkIndices",
+                        "type": "uint32[]",
+                        "internalType": "uint32[]"
+                    },
+                    {
+                        "name": "totalStakeIndices",
+                        "type": "uint32[]",
+                        "internalType": "uint32[]"
+                    },
+                    {
+                        "name": "nonSignerStakeIndices",
+                        "type": "uint32[][]",
+                        "internalType": "uint32[][]"
+                    }
+                ]
+            }
+        ],
+        "stateMutability": "view"
+    },
+    {
+        "type": "function",
+        "name": "getOperatorState",
+        "inputs": [
+            {
+                "name": "registryCoordinator",
+                "type": "address",
+                "internalType": "contract ISlashingRegistryCoordinator"
+            },
+            {
+                "name": "quorumNumbers",
+                "type": "bytes",
+                "internalType": "bytes"
+            },
+            {
+                "name": "blockNumber",
+                "type": "uint32",
+                "internalType": "uint32"
+            }
+        ],
+        "outputs": [
+            {
+                "name": "",
+                "type": "tuple[][]",
+                "internalType": "struct OperatorStateRetriever.Operator[][]",
+                "components": [
+                    {
+                        "name": "operator",
+                        "type": "address",
+                        "internalType": "address"
+                    },
+                    {
+                        "name": "operatorId",
+                        "type": "bytes32",
+                        "internalType": "bytes32"
+                    },
+                    {
+                        "name": "stake",
+                        "type": "uint96",
+                        "internalType": "uint96"
+                    }
+                ]
+            }
+        ],
+        "stateMutability": "view"
+    },
+    {
+        "type": "function",
+        "name": "getOperatorState",
+        "inputs": [
+            {
+                "name": "registryCoordinator",
+                "type": "address",
+                "internalType": "contract ISlashingRegistryCoordinator"
+            },
+            {
+                "name": "operatorId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+            },
+            {
+                "name": "blockNumber",
+                "type": "uint32",
+                "internalType": "uint32"
+            }
+        ],
+        "outputs": [
+            {
+                "name": "",
+                "type": "uint256",
+                "internalType": "uint256"
+            },
+            {
+                "name": "",
+                "type": "tuple[][]",
+                "internalType": "struct OperatorStateRetriever.Operator[][]",
+                "components": [
+                    {
+                        "name": "operator",
+                        "type": "address",
+                        "internalType": "address"
+                    },
+                    {
+                        "name": "operatorId",
+                        "type": "bytes32",
+                        "internalType": "bytes32"
+                    },
+                    {
+                        "name": "stake",
+                        "type": "uint96",
+                        "internalType": "uint96"
+                    }
+                ]
+            }
+        ],
+        "stateMutability": "view"
+    },
+    {
+        "type": "function",
+        "name": "getQuorumBitmapsAtBlockNumber",
+        "inputs": [
+            {
+                "name": "registryCoordinator",
+                "type": "address",
+                "internalType": "contract ISlashingRegistryCoordinator"
+            },
+            {
+                "name": "operatorIds",
+                "type": "bytes32[]",
+                "internalType": "bytes32[]"
+            },
+            {
+                "name": "blockNumber",
+                "type": "uint32",
+                "internalType": "uint32"
+            }
+        ],
+        "outputs": [
+            {
+                "name": "",
+                "type": "uint256[]",
+                "internalType": "uint256[]"
+            }
+        ],
+        "stateMutability": "view"
+    },
+    {
+        "type": "error",
+        "name": "BytesArrayLengthTooLong",
+        "inputs": []
+    },
+    {
+        "type": "error",
+        "name": "BytesArrayNotOrdered",
+        "inputs": []
+    },
+    {
+        "type": "error",
+        "name": "ECAddFailed",
+        "inputs": []
+    },
+    {
+        "type": "error",
+        "name": "InvalidSigma",
+        "inputs": []
+    },
+    {
+        "type": "error",
+        "name": "OperatorNotRegistered",
+        "inputs": []
+    }
+]
