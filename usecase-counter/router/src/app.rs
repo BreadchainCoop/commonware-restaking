@@ -229,7 +229,7 @@ pub fn main() {
         use commonware_eigenlayer::config::AvsDeployment;
 
         let http_rpc = std::env::var("HTTP_RPC").expect("HTTP_RPC must be set");
-        let view_only_provider = ProviderBuilder::new().on_http(url::Url::parse(&http_rpc).unwrap());
+        let view_only_provider = ProviderBuilder::new().connect_http(url::Url::parse(&http_rpc).unwrap());
         let deployment = AvsDeployment::load().expect("Failed to load deployment");
         let bls_apk_registry_address = deployment.bls_apk_registry_address().expect("bls apk registry address");
         let registry_coordinator_address = deployment.registry_coordinator_address().expect("registry coordinator address");

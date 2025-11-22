@@ -14,13 +14,13 @@ use std::{env, io::Cursor};
 use commonware_avs_core::validator::ValidatorTrait;
 
 pub struct CounterValidator {
-    counter: Counter::CounterInstance<(), ReadOnlyProvider>,
+    counter: Counter::CounterInstance<ReadOnlyProvider, alloy::network::Ethereum>,
 }
 
 impl CounterValidator {
     pub async fn new() -> Result<Self> {
         let http_rpc = env::var("HTTP_RPC").expect("HTTP_RPC must be set");
-        let provider = ProviderBuilder::new().on_http(url::Url::parse(&http_rpc).unwrap());
+        let provider = ProviderBuilder::new().connect_http(url::Url::parse(&http_rpc).unwrap());
 
         let deployment = AvsDeployment::load()
             .map_err(|e| anyhow::anyhow!("Failed to load AVS deployment: {}", e))?;
@@ -36,7 +36,7 @@ impl CounterValidator {
         let aggregation: wire::Aggregation<CounterTaskData> =
             wire::Aggregation::read(&mut Cursor::new(msg))?;
         let current_number = self.counter.number().call().await?;
-        let current_number = current_number._0.to::<u64>();
+        let current_number = current_number.to::<u64>();
 
         if aggregation.round != current_number {
             return Err(anyhow::anyhow!(

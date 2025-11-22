@@ -41,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Create provider and counter instance
     let url = url::Url::parse(&http_rpc).map_err(|e| format!("Invalid RPC URL: {}", e))?;
-    let provider = ProviderBuilder::new().on_http(url);
+    let provider = ProviderBuilder::new().connect_http(url);
     let counter = Counter::new(counter_address, provider);
 
     // Get initial counter value
@@ -50,7 +50,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .call()
         .await
         .map_err(|e| format!("Failed to get initial counter: {}", e))?
-        ._0
         .to::<u64>();
     println!("Initial counter value: {}", initial_count);
 
@@ -67,7 +66,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .call()
             .await
             .map_err(|e| format!("Failed to get current counter: {}", e))?
-            ._0
             .to::<u64>();
         let increments = current_count.saturating_sub(initial_count);
 
