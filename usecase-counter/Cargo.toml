@@ -19,6 +19,7 @@ commonware-avs-bindings = { path = "../bindings" }
 commonware-codec = { workspace = true }
 commonware-cryptography = { workspace = true }
 eigen-client-avsregistry = { workspace = true }
+eigen-crypto-bls = { workspace = true }
 eigen-services-operatorsinfo = { workspace = true }
 eigen-common = { workspace = true }
 eigen-utils = { workspace = true }

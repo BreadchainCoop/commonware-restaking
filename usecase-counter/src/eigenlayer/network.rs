@@ -1,4 +1,5 @@
 use alloy_primitives::{Address, U256, address};
+use alloy_provider::Provider;
 use bn254::{G1PublicKey, PublicKey};
 use eigen_client_avsregistry::reader::AvsRegistryChainReader;
 use eigen_common::get_provider;

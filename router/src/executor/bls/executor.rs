@@ -1,5 +1,5 @@
-use alloy::providers::Provider;
 use alloy::sol_types::SolValue;
+use alloy::{network::Ethereum, providers::Provider};
 use alloy_primitives::{Address, Bytes, FixedBytes, U256};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -23,8 +23,9 @@ use crate::executor::{ExecutionResult, VerificationData, VerificationExecutor};
 
 pub struct BlsEigenlayerExecutor<H> {
     view_only_provider: ReadOnlyProvider,
-    bls_apk_registry: BLSApkRegistryInstance<(), ReadOnlyProvider>,
-    bls_operator_state_retriever: BLSSigCheckOperatorStateRetrieverInstance<(), ReadOnlyProvider>,
+    bls_apk_registry: BLSApkRegistryInstance<ReadOnlyProvider, Ethereum>,
+    bls_operator_state_retriever:
+        BLSSigCheckOperatorStateRetrieverInstance<ReadOnlyProvider, Ethereum>,
     registry_coordinator_address: Address,
     contract_handler: H,
     g1_hash_map: HashMap<PublicKey, Address>,
@@ -33,10 +34,10 @@ pub struct BlsEigenlayerExecutor<H> {
 impl<H> BlsEigenlayerExecutor<H> {
     pub fn new(
         view_only_provider: ReadOnlyProvider,
-        bls_apk_registry: BLSApkRegistryInstance<(), ReadOnlyProvider>,
+        bls_apk_registry: BLSApkRegistryInstance<ReadOnlyProvider, Ethereum>,
         bls_operator_state_retriever: BLSSigCheckOperatorStateRetrieverInstance<
-            (),
             ReadOnlyProvider,
+            Ethereum,
         >,
         registry_coordinator_address: Address,
         contract_handler: H,
@@ -78,8 +79,7 @@ impl<H> BlsEigenlayerExecutor<H> {
             )
             .call()
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to get operator from pubkey hash: {}", e))?
-            .operator;
+            .map_err(|e| anyhow::anyhow!("Failed to get operator from pubkey hash: {}", e))?;
 
         self.g1_hash_map.insert(contributor.clone(), address);
         Ok(address)
@@ -199,7 +199,7 @@ impl<H: BlsSignatureVerificationHandler> BlsExecutorTrait<H::TaskData>
             .map_err(|e| anyhow::anyhow!("Failed to parse quorum numbers: {}", e))?;
 
         // Call the BLS operator state retriever to get the non-signer data
-        let non_signer_return = self
+        let non_signer_result = self
             .bls_operator_state_retriever
             .getNonSignerStakesAndSignature(
                 self.registry_coordinator_address,
@@ -211,6 +211,12 @@ impl<H: BlsSignatureVerificationHandler> BlsExecutorTrait<H::TaskData>
             .call()
             .await
             .map_err(|e| anyhow::anyhow!("Failed to get non-signer stakes and signature: {}", e))?;
+
+        // Wrap the result to match the trait signature
+        use commonware_avs_bindings::blssigcheckoperatorstateretriever::BLSSigCheckOperatorStateRetriever::getNonSignerStakesAndSignatureReturn;
+        let non_signer_return = getNonSignerStakesAndSignatureReturn {
+            _0: non_signer_result,
+        };
 
         // Delegate the contract-specific execution to the handler
         let result = self

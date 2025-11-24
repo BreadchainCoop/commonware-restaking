@@ -16,13 +16,13 @@ edition = "2024"
 
 [workspace.dependencies]
 # Core dependencies shared across packages
-alloy = { version = "0.12.6" }
-alloy-network = "0.5.4"
-alloy-primitives = "0.8.25"
+alloy = "1.0"
+alloy-network = "1.0"
+alloy-primitives = "1.0"
 # Alloy ecosystem
-alloy-provider = "0.12.6"
-alloy-signer = "0.12.6"
-alloy-signer-local = "0.12.6"
+alloy-provider = "1.0"
+alloy-signer = "1.0"
+alloy-signer-local = "1.0"
 anyhow = "1.0"
 # Arkworks and bn254
 ark-bn254 = "0.5.0"
@@ -36,18 +36,18 @@ bytes = "1.10.1"
 clap = "4.5.37"
 # Commonware crates
 commonware-codec = "0.0.56"
-commonware-cryptography = "0.0.56"
+commonware-cryptography = "0.0.62"
 eigen-client-avsregistry = "2.0.0"
 eigen-services-operatorsinfo = "2.0.0"
 eigen-common = "2.0.0"
 eigen-utils = "2.0.0"
 commonware-macros = "0.0.56"
-commonware-p2p = "0.0.56"
-commonware-runtime = "0.0.56"
+commonware-p2p = "0.0.62"
+commonware-runtime = "0.0.62"
 commonware-utils = "0.0.56"
 dotenv = "0.15.0"
-eigen-crypto-bls = "0.5.0"
-eigen-crypto-bn254 = "0.5.0"
+eigen-crypto-bls = "2.0.0"
+eigen-crypto-bn254 = "2.0.0"
 eigen-logging = "0.1.3"
 futures = "0.3.31"
 futures-util = "0.3.31"
@@ -67,6 +67,3 @@ tower-http = "0.5"
 tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
 url = { version = "2.5.4", features = ["serde"] }
-
-[patch.crates-io]
-deranged = { git = "https://github.com/jhpratt/deranged", rev = "3c95431a375bca409a4731ae8749acc84e076267" }

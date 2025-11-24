@@ -14,7 +14,7 @@ pub mod blsapkregistry;
 pub mod blssigcheckoperatorstateretriever;
 pub mod counter;
 
-use alloy::{network::EthereumWallet, providers::fillers::FillProvider};
+use alloy::{network::Ethereum, network::EthereumWallet, providers::fillers::FillProvider};
 use alloy_provider::{
     RootProvider,
     fillers::{BlobGasFiller, ChainIdFiller, GasFiller, JoinFill, NonceFiller, WalletFiller},
@@ -30,6 +30,7 @@ pub type WalletProvider = FillProvider<
         WalletFiller<EthereumWallet>,
     >,
     RootProvider,
+    Ethereum,
 >;
 
 // Type alias for read-only provider (without wallet, for queries)
@@ -39,4 +40,5 @@ pub type ReadOnlyProvider = FillProvider<
         JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
     >,
     RootProvider,
+    Ethereum,
 >;
