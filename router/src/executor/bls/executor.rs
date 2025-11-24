@@ -4,14 +4,6 @@ use alloy_primitives::{Address, Bytes, FixedBytes, U256};
 use anyhow::Result;
 use async_trait::async_trait;
 use bn254::{G1PublicKey, PublicKey};
-use commonware_avs_bindings::{
-    ReadOnlyProvider,
-    blsapkregistry::BLSApkRegistry::BLSApkRegistryInstance,
-    blssigcheckoperatorstateretriever::{
-        BLSSigCheckOperatorStateRetriever::BLSSigCheckOperatorStateRetrieverInstance,
-        BN254::G1Point,
-    },
-};
 use commonware_utils::hex;
 use eigen_crypto_bls::convert_to_g1_point;
 use std::{collections::HashMap, str::FromStr};
@@ -20,6 +12,16 @@ use tracing::debug;
 use super::traits::{BlsExecutorTrait, BlsSignatureVerificationHandler};
 use super::types::BlsVerificationData;
 use crate::executor::{ExecutionResult, VerificationData, VerificationExecutor};
+use commonware_avs_bindings::{
+    ReadOnlyProvider,
+    blsapkregistry::BLSApkRegistry::BLSApkRegistryInstance,
+    blssigcheckoperatorstateretriever::{
+        BLSSigCheckOperatorStateRetriever::{
+            BLSSigCheckOperatorStateRetrieverInstance, getNonSignerStakesAndSignatureReturn,
+        },
+        BN254::G1Point,
+    },
+};
 
 pub struct BlsEigenlayerExecutor<H> {
     view_only_provider: ReadOnlyProvider,
@@ -213,7 +215,6 @@ impl<H: BlsSignatureVerificationHandler> BlsExecutorTrait<H::TaskData>
             .map_err(|e| anyhow::anyhow!("Failed to get non-signer stakes and signature: {}", e))?;
 
         // Wrap the result to match the trait signature
-        use commonware_avs_bindings::blssigcheckoperatorstateretriever::BLSSigCheckOperatorStateRetriever::getNonSignerStakesAndSignatureReturn;
         let non_signer_return = getNonSignerStakesAndSignatureReturn {
             _0: non_signer_result,
         };

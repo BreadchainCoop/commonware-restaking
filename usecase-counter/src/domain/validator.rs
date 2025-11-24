@@ -1,18 +1,17 @@
-use crate::types::CounterTaskData;
 use alloy::sol_types::SolValue;
 use alloy_primitives::U256;
 use alloy_provider::ProviderBuilder;
 use anyhow::Result;
-use commonware_avs_bindings::{ReadOnlyProvider, counter::Counter};
-use commonware_avs_core::wire;
 use commonware_codec::{DecodeExt, ReadExt};
 use commonware_cryptography::sha256::Digest;
 use commonware_cryptography::{Hasher, Sha256};
 use std::{env, io::Cursor};
 
-use commonware_avs_core::validator::ValidatorTrait;
-
 use crate::AvsDeployment;
+use crate::types::CounterTaskData;
+use commonware_avs_bindings::{ReadOnlyProvider, counter::Counter};
+use commonware_avs_core::validator::ValidatorTrait;
+use commonware_avs_core::wire;
 
 pub struct CounterValidator {
     counter: Counter::CounterInstance<ReadOnlyProvider, alloy::network::Ethereum>,
