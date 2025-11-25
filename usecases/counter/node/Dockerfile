@@ -16,19 +16,19 @@ COPY bindings/Cargo.toml ./bindings/Cargo.toml
 COPY router/Cargo.toml ./router/Cargo.toml
 COPY scripts/Cargo.toml ./scripts/Cargo.toml
 COPY node/Cargo.toml ./node/Cargo.toml
-COPY usecase-counter/Cargo.toml ./usecase-counter/Cargo.toml
-COPY usecase-counter/node/Cargo.toml ./usecase-counter/node/Cargo.toml
-COPY usecase-counter/router/Cargo.toml ./usecase-counter/router/Cargo.toml
+COPY usecases/Cargo.toml ./usecases/Cargo.toml
+COPY usecases/counter/node/Cargo.toml ./usecases/counter/node/Cargo.toml
+COPY usecases/counter/router/Cargo.toml ./usecases/counter/router/Cargo.toml
 
 # Create placeholder targets for workspace members so Cargo can resolve manifests
-RUN mkdir -p core/src bindings/src router/src node/src scripts/src usecase-counter/src usecase-counter/node/src usecase-counter/router/src \
+RUN mkdir -p core/src bindings/src router/src node/src scripts/src usecases/src usecases/counter/node/src usecases/counter/router/src \
     && echo 'pub fn _placeholder(){}' > core/src/lib.rs \
     && echo 'pub fn _placeholder(){}' > bindings/src/lib.rs \
     && echo 'pub fn _placeholder(){}' > router/src/lib.rs \
     && echo 'pub fn _placeholder(){}' > node/src/lib.rs \
-    && echo 'pub fn _placeholder(){}' > usecase-counter/lib.rs \
-    && echo 'fn main(){}' > usecase-counter/node/src/app.rs \
-    && echo 'fn main(){}' > usecase-counter/router/src/app.rs \
+    && echo 'pub fn _placeholder(){}' > usecases/src/lib.rs \
+    && echo 'fn main(){}' > usecases/counter/node/src/app.rs \
+    && echo 'fn main(){}' > usecases/counter/router/src/app.rs \
     && echo 'fn main(){}' > scripts/src/main.rs \
     && cargo fetch
 
@@ -37,10 +37,11 @@ COPY core ./core
 COPY bindings ./bindings
 COPY node ./node
 COPY router ./router
-COPY usecase-counter ./usecase-counter
+COPY usecases ./usecases
 
 # Build only the node binary from the workspace
-RUN cargo build -p commonware-avs-node-app --release
+ARG BUILD_JOBS=2
+RUN cargo build -p commonware-avs-node-app --release --jobs $BUILD_JOBS
 
 # Runtime stage
 FROM debian:bookworm-slim

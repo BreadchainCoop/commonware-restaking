@@ -1,5 +1,5 @@
 [package]
-name = "commonware-usecase-counter"
+name = "commonware-avs-usecases"
 version = "0.1.0"
 edition = "2024"
 

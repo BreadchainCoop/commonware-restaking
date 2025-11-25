@@ -6,7 +6,8 @@ Monorepo for the Commonware AVS reference implementation on EigenLayer. It conta
 - [`bindings`](./bindings): Standalone crate for on-chain contract bindings
 - [`router`](./router): Generic service library for running an aggregation/orchestrator service
 - [`node`](./node): Generic service library for running a contributor/operator node
-- [`usecase-counter`](./usecase-counter): Implementation of the example "counter" AVS usecase —- demonstrates BLS aggregation workflow
+- [`usecases`](./usecases): Examples and reference AVS usecases demonstrating integration with the core, router, and node libraries
+- [`usecases/counter`](./usecases/counter): Implementation of the example "counter" AVS usecase
 - [`config`](./config): Configuration files for local network, contract deployments, and test keys
 - [`scripts`](./scripts): Helper scripts for end-to-end validation and local integration testing
 - `docker-compose.yml`: One-command stack runner (Ethereum, EigenLayer, router, operator nodes, signer)
@@ -15,8 +16,8 @@ Monorepo for the Commonware AVS reference implementation on EigenLayer. It conta
 
 [Counter](https://github.com/BreadchainCoop/commonware-avs-counter) demonstrates a simple end‑to‑end AVS flow:
 
-- BLS quorum signing (n‑of‑m) by [`node`](./usecase-counter/node) operators
-- Aggregation and on‑chain execution by [`router`](./usercase-counter/router) (increments a counter contract)
+- BLS quorum signing (n‑of‑m) by [`node`](./usecases/counter/node) operators
+- Aggregation and on‑chain execution by [`router`](./usercases/counter/router) (increments a counter contract)
 - Message validation and payload hashing via [`core`](./core) wire + validator utilities
 
 > [!NOTE]

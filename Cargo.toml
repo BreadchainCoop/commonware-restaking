@@ -5,9 +5,9 @@ members = [
     "node",
     "router",
     "scripts",
-    "usecase-counter",
-    "usecase-counter/node",
-    "usecase-counter/router",
+    "usecases",
+    "usecases/counter/node",
+    "usecases/counter/router",
 ]
 resolver = "2"
 

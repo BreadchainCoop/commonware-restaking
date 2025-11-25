@@ -1,16 +1,16 @@
 [package]
-name = "commonware-avs-router-app"
+name = "commonware-avs-node-app"
 version = "0.1.0"
 edition = "2024"
 
 [[bin]]
-name = "commonware-avs-router-app"
+name = "commonware-avs-node-app"
 path = "src/app.rs"
 
 [dependencies]
-commonware-usecase-counter = { path = ".." }
-commonware-avs-router = { path = "../../router" }
-commonware-avs-bindings = { path = "../../bindings" }
+commonware-avs-usecases = { path = "../.." }
+commonware-avs-node = { path = "../../../node" }
+commonware-avs-router = { path = "../../../router" }
 commonware-cryptography = { workspace = true }
 commonware-runtime = { workspace = true }
 commonware-p2p = { workspace = true }
@@ -19,20 +19,11 @@ clap = { workspace = true }
 ark-bn254 = { workspace = true }
 bn254 = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
 dotenv = { workspace = true }
 eigen-logging = { workspace = true }
 governor = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-url = { workspace = true }
-alloy-provider = { workspace = true }
-alloy-signer-local = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
-tokio = { workspace = true }
-alloy = { workspace = true }
-alloy-primitives = { workspace = true }
-commonware-avs-core = { path = "../../core" }
-
-
+commonware-avs-core = { path = "../../../core" }

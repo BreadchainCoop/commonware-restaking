@@ -7,13 +7,13 @@ use bn254::Bn254;
 use bn254::PrivateKey;
 use clap::{Arg, Command, value_parser};
 use commonware_avs_router::orchestrator::traits::OrchestratorTrait;
+use commonware_avs_usecases::{EigenStakingClient, QuorumInfo};
 use commonware_cryptography::Signer;
 use commonware_p2p::authenticated::lookup::{self, Network};
 use commonware_runtime::{
     Metrics, Runner, Spawner,
     tokio::{self},
 };
-use commonware_usecase_counter::{EigenStakingClient, QuorumInfo};
 use commonware_utils::NZU32;
 use eigen_logging::log_level::LogLevel;
 use governor::Quota;
@@ -226,7 +226,7 @@ pub fn main() {
         use commonware_avs_bindings::blsapkregistry::BLSApkRegistry;
         use commonware_avs_bindings::blssigcheckoperatorstateretriever::BLSSigCheckOperatorStateRetriever;
         use commonware_avs_bindings::WalletProvider;
-        use commonware_usecase_counter::AvsDeployment;
+        use commonware_avs_usecases::AvsDeployment;
 
         let http_rpc = std::env::var("HTTP_RPC").expect("HTTP_RPC must be set");
         let view_only_provider = ProviderBuilder::new().connect_http(url::Url::parse(&http_rpc).unwrap());
@@ -260,7 +260,7 @@ pub fn main() {
         );
 
         // Validator
-        use commonware_usecase_counter::CounterValidator;
+        use commonware_avs_usecases::CounterValidator;
         let validator = CounterValidator::new()
             .await
             .expect("Failed to construct validator");

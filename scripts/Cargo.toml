@@ -14,4 +14,4 @@ url = { workspace = true }
 dotenv = { workspace = true }
 serde = { workspace = true }
 commonware-avs-router = { path = "../router" }
-commonware-usecase-counter = { path = "../usecase-counter" }
+commonware-avs-usecases = { path = "../usecases" }
