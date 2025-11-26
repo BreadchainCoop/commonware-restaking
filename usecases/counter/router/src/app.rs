@@ -108,7 +108,7 @@ pub fn main() {
     const MAX_MESSAGE_SIZE: usize = 1024 * 1024; // 1 MB
     let my_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port);
     let my_local_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
-    let mut p2p_cfg = lookup::Config::local(
+    let p2p_cfg = lookup::Config::local(
         signer.clone(),
         APPLICATION_NAMESPACE,
         my_addr,
@@ -116,12 +116,10 @@ pub fn main() {
         MAX_MESSAGE_SIZE,
     );
 
-    // Allow handshakes from IPs that aren't yet in the registered peer set
-    p2p_cfg.attempt_unregistered_handshakes = true;
-
     // Start runtime
     runner.start(|context| async move {
-        let (mut network, mut oracle) = Network::new(context.with_label("network"), p2p_cfg);
+        // Build recipients list BEFORE creating network to ensure peers are registered
+        // before any connection attempts are made
         let mut recipients: Vec<(PublicKey, SocketAddr)>;
         let quorum_infos;
         {
@@ -174,7 +172,11 @@ pub fn main() {
             .finish();
         let _ = tracing::subscriber::set_default(subscriber);
 
-        // Provide authorized peers
+        // Create network and register peers BEFORE starting it
+        let (mut network, mut oracle) = Network::new(context.with_label("network"), p2p_cfg);
+
+        // Register authorized peers immediately - this must happen before network.start()
+        // to ensure IPs are registered before any connection attempts
         let authorized = OrderedAssociated::from_iter(recipients);
         oracle.update(0, authorized).await;
 
