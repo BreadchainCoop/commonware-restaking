@@ -5,8 +5,8 @@ mod provider;
 use ark_bn254::Fr;
 use clap::{Arg, Command, value_parser};
 use commonware_avs_core::bn254::{Bn254, PrivateKey, PublicKey};
+use commonware_avs_core::eigenlayer::network::{EigenStakingClient, QuorumInfo};
 use commonware_avs_router::orchestrator::traits::OrchestratorTrait;
-use commonware_avs_usecases::{EigenStakingClient, QuorumInfo};
 use commonware_cryptography::Signer;
 use commonware_p2p::Manager;
 use commonware_p2p::authenticated::lookup::{self, Network};
@@ -231,7 +231,7 @@ pub fn main() {
         use commonware_avs_bindings::blsapkregistry::BLSApkRegistry;
         use commonware_avs_bindings::blssigcheckoperatorstateretriever::BLSSigCheckOperatorStateRetriever;
         use commonware_avs_bindings::WalletProvider;
-        use commonware_avs_usecases::AvsDeployment;
+        use commonware_avs_core::eigenlayer::config::AvsDeployment;
 
         let http_rpc = std::env::var("HTTP_RPC").expect("HTTP_RPC must be set");
         let view_only_provider = ProviderBuilder::new().connect_http(url::Url::parse(&http_rpc).unwrap());
@@ -265,7 +265,7 @@ pub fn main() {
         );
 
         // Validator
-        use commonware_avs_usecases::CounterValidator;
+        use commonware_avs_counter::CounterValidator;
         let validator = CounterValidator::new()
             .await
             .expect("Failed to construct validator");

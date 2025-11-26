@@ -3,22 +3,31 @@ name = "commonware-avs-core"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+test-utils = []
+
 [dependencies]
-anyhow = { workspace = true }
-async-trait = { workspace = true }
-commonware-codec = { workspace = true }
-commonware-p2p = { workspace = true }
-commonware-runtime = { workspace = true }
-commonware-cryptography = { workspace = true }
 alloy = { workspace = true }
-bytes = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-provider = { workspace = true }
+anyhow = { workspace = true }
 ark-bn254 = { workspace = true }
 ark-ec = { workspace = true }
 ark-ff = { workspace = true }
 ark-serialize = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+commonware-codec = { workspace = true }
+commonware-cryptography = { workspace = true }
+commonware-p2p = { workspace = true }
+commonware-runtime = { workspace = true }
 commonware-utils = { workspace = true }
+eigen-client-avsregistry = { workspace = true }
+eigen-common = { workspace = true }
+eigen-crypto-bls = { workspace = true }
 eigen-crypto-bn254 = { workspace = true }
+eigen-services-operatorsinfo = { workspace = true }
+eigen-utils = { workspace = true }
 rand = { workspace = true }
-
-[features]
-test-utils = []
+serde = { workspace = true }
+serde_json = { workspace = true }

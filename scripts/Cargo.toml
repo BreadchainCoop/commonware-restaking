@@ -9,9 +9,9 @@ path = "verify_increments.rs"
 
 [dependencies]
 alloy = { workspace = true }
-tokio = { workspace = true }
-url = { workspace = true }
+commonware-avs-core = { path = "../core" }
+commonware-avs-router = { path = "../router" }
 dotenv = { workspace = true }
 serde = { workspace = true }
-commonware-avs-router = { path = "../router" }
-commonware-avs-usecases = { path = "../usecases" }
+tokio = { workspace = true }
+url = { workspace = true }

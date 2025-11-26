@@ -1,6 +1,6 @@
+use crate::bn254::{G1PublicKey, PublicKey};
 use alloy_primitives::{Address, U256, address};
 use alloy_provider::Provider;
-use commonware_avs_core::bn254::{G1PublicKey, PublicKey};
 use eigen_client_avsregistry::reader::AvsRegistryChainReader;
 use eigen_common::get_provider;
 use eigen_crypto_bls::{BlsG1Point, BlsG2Point};

@@ -7,11 +7,11 @@ use async_trait::async_trait;
 use commonware_avs_bindings::WalletProvider;
 use commonware_avs_bindings::blssigcheckoperatorstateretriever::BLSSigCheckOperatorStateRetriever::getNonSignerStakesAndSignatureReturn;
 use commonware_avs_bindings::counter::{self, Counter};
+use commonware_avs_counter::CounterTaskData;
 use commonware_avs_router::executor::ExecutionResult;
 use commonware_avs_router::executor::bls::{
     BlsSignatureVerificationHandler, convert_non_signer_data,
 };
-use commonware_avs_usecases::types::CounterTaskData;
 
 pub struct CounterHandler {
     pub counter: Counter::CounterInstance<WalletProvider, Ethereum>,

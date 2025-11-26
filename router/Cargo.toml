@@ -6,50 +6,50 @@ edition = "2024"
 [dependencies]
 # Workspace-shared deps
 alloy = { workspace = true }
-tokio = { workspace = true }
-url = { workspace = true }
-dotenv = { workspace = true }
-serde = { workspace = true }
-commonware-avs-core = { path = "../core" }
-commonware-avs-bindings = { path = "../bindings" }
-
-# Router-specific deps
-async-trait = { workspace = true }
 alloy-primitives = { workspace = true }
+alloy-provider = { workspace = true }
 alloy-signer = { workspace = true }
 alloy-signer-local = { workspace = true }
-alloy-provider = { workspace = true }
+anyhow = { workspace = true }
 ark-bn254 = { workspace = true }
 ark-ec = { workspace = true }
 ark-ff = { workspace = true }
 ark-serialize = { workspace = true }
+
+# Router-specific deps
+async-trait = { workspace = true }
+axum = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
+commonware-avs-bindings = { path = "../bindings" }
+commonware-avs-core = { path = "../core" }
 commonware-codec = { workspace = true }
 commonware-cryptography = { workspace = true }
 commonware-macros = { workspace = true }
 commonware-p2p = { workspace = true }
 commonware-runtime = { workspace = true }
 commonware-utils = { workspace = true }
+dotenv = { workspace = true }
 eigen-crypto-bls = { workspace = true }
 eigen-crypto-bn254 = { workspace = true }
+eigen-logging = { workspace = true }
 futures = { workspace = true }
 futures-util = { workspace = true }
 governor = { workspace = true }
+hex = { workspace = true }
+num-bigint = { workspace = true }
 prometheus-client = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
-num-bigint = { workspace = true }
-eigen-logging = { workspace = true }
-axum = { workspace = true }
+tokio = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true, features = ["cors"] }
-hex = { workspace = true }
-anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+url = { workspace = true }
 
 [build-dependencies]
 prost-build = { workspace = true }
