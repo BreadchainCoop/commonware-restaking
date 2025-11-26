@@ -1266,19 +1266,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
-name = "avs-scripts"
-version = "0.1.0"
-dependencies = [
- "alloy",
- "commonware-avs-core",
- "commonware-avs-router",
- "dotenv",
- "serde",
- "tokio",
- "url",
-]
-
-[[package]]
 name = "aws-config"
 version = "1.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2041,23 +2028,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "commonware-avs-counter"
-version = "0.1.0"
-dependencies = [
- "alloy",
- "alloy-primitives",
- "alloy-provider",
- "anyhow",
- "async-trait",
- "bytes",
- "commonware-avs-bindings",
- "commonware-avs-core",
- "commonware-codec",
- "commonware-cryptography",
- "url",
-]
-
-[[package]]
 name = "commonware-avs-node"
 version = "0.1.0"
 dependencies = [
@@ -2100,30 +2070,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber 0.3.20",
  "url",
-]
-
-[[package]]
-name = "commonware-avs-node-app"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "ark-bn254",
- "async-trait",
- "clap",
- "commonware-avs-core",
- "commonware-avs-counter",
- "commonware-avs-node",
- "commonware-avs-router",
- "commonware-cryptography",
- "commonware-p2p",
- "commonware-runtime",
- "commonware-utils",
- "dotenv",
- "eigen-logging",
- "governor",
- "serde",
- "serde_json",
- "tracing",
 ]
 
 [[package]]
@@ -2171,37 +2117,6 @@ dependencies = [
  "tokio",
  "tower 0.4.13",
  "tower-http 0.5.2",
- "tracing",
- "tracing-subscriber 0.3.20",
- "url",
-]
-
-[[package]]
-name = "commonware-avs-router-app"
-version = "0.1.0"
-dependencies = [
- "alloy",
- "alloy-primitives",
- "alloy-provider",
- "alloy-signer-local",
- "anyhow",
- "ark-bn254",
- "async-trait",
- "clap",
- "commonware-avs-bindings",
- "commonware-avs-core",
- "commonware-avs-counter",
- "commonware-avs-router",
- "commonware-cryptography",
- "commonware-p2p",
- "commonware-runtime",
- "commonware-utils",
- "dotenv",
- "eigen-logging",
- "governor",
- "serde",
- "serde_json",
- "tokio",
  "tracing",
  "tracing-subscriber 0.3.20",
  "url",

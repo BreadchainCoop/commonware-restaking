@@ -4,10 +4,6 @@ members = [
     "core",
     "node",
     "router",
-    "scripts",
-    "usecases/counter",
-    "usecases/counter/node",
-    "usecases/counter/router",
 ]
 resolver = "2"
 
