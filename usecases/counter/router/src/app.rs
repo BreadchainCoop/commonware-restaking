@@ -7,8 +7,8 @@ use bn254::Bn254;
 use bn254::PrivateKey;
 use clap::{Arg, Command, value_parser};
 use commonware_avs_router::orchestrator::traits::OrchestratorTrait;
+use commonware_avs_usecases::{EigenStakingClient, QuorumInfo};
 use commonware_cryptography::Signer;
-use commonware_eigenlayer::network_configuration::{EigenStakingClient, QuorumInfo};
 use commonware_p2p::authenticated::lookup::{self, Network};
 use commonware_runtime::{
     Metrics, Runner, Spawner,
@@ -226,10 +226,10 @@ pub fn main() {
         use commonware_avs_bindings::blsapkregistry::BLSApkRegistry;
         use commonware_avs_bindings::blssigcheckoperatorstateretriever::BLSSigCheckOperatorStateRetriever;
         use commonware_avs_bindings::WalletProvider;
-        use commonware_eigenlayer::config::AvsDeployment;
+        use commonware_avs_usecases::AvsDeployment;
 
         let http_rpc = std::env::var("HTTP_RPC").expect("HTTP_RPC must be set");
-        let view_only_provider = ProviderBuilder::new().on_http(url::Url::parse(&http_rpc).unwrap());
+        let view_only_provider = ProviderBuilder::new().connect_http(url::Url::parse(&http_rpc).unwrap());
         let deployment = AvsDeployment::load().expect("Failed to load deployment");
         let bls_apk_registry_address = deployment.bls_apk_registry_address().expect("bls apk registry address");
         let registry_coordinator_address = deployment.registry_coordinator_address().expect("registry coordinator address");
@@ -260,7 +260,7 @@ pub fn main() {
         );
 
         // Validator
-        use commonware_usecase_counter::CounterValidator;
+        use commonware_avs_usecases::CounterValidator;
         let validator = CounterValidator::new()
             .await
             .expect("Failed to construct validator");

@@ -1,10 +1,10 @@
 [package]
-name = "commonware-usecase-counter"
+name = "commonware-avs-usecases"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
-path = "lib.rs"
+path = "src/lib.rs"
 
 [dependencies]
 anyhow = { workspace = true }
@@ -18,7 +18,11 @@ commonware-avs-core = { path = "../core" }
 commonware-avs-bindings = { path = "../bindings" }
 commonware-codec = { workspace = true }
 commonware-cryptography = { workspace = true }
-commonware-eigenlayer = { workspace = true }
+eigen-client-avsregistry = { workspace = true }
+eigen-crypto-bls = { workspace = true }
+eigen-services-operatorsinfo = { workspace = true }
+eigen-common = { workspace = true }
+eigen-utils = { workspace = true }
 commonware-runtime = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

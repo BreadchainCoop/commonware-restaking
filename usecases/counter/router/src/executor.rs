@@ -1,4 +1,7 @@
-use alloy_primitives::{Bytes, FixedBytes};
+use alloy::{
+    network::Ethereum,
+    primitives::{Bytes, FixedBytes},
+};
 use anyhow::Result;
 use async_trait::async_trait;
 use commonware_avs_bindings::WalletProvider;
@@ -8,14 +11,14 @@ use commonware_avs_router::executor::ExecutionResult;
 use commonware_avs_router::executor::bls::{
     BlsSignatureVerificationHandler, convert_non_signer_data,
 };
-use commonware_usecase_counter::types::CounterTaskData;
+use commonware_avs_usecases::types::CounterTaskData;
 
 pub struct CounterHandler {
-    pub counter: Counter::CounterInstance<(), WalletProvider>,
+    pub counter: Counter::CounterInstance<WalletProvider, Ethereum>,
 }
 
 impl CounterHandler {
-    pub fn new(counter: Counter::CounterInstance<(), WalletProvider>) -> Self {
+    pub fn new(counter: Counter::CounterInstance<WalletProvider, Ethereum>) -> Self {
         Self { counter }
     }
 }

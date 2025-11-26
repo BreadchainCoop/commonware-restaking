@@ -10,7 +10,6 @@ tokio = { workspace = true }
 url = { workspace = true }
 dotenv = { workspace = true }
 serde = { workspace = true }
-commonware-eigenlayer = { workspace = true }
 commonware-avs-core = { path = "../core" }
 commonware-avs-bindings = { path = "../bindings" }
 

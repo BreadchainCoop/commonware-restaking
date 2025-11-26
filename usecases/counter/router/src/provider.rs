@@ -1,10 +1,10 @@
-use alloy::{primitives::U256, sol_types::SolValue};
+use alloy::{network::Ethereum, primitives::U256, sol_types::SolValue};
 use anyhow::Result;
 
 use commonware_avs_bindings::{WalletProvider as AlloyProvider, counter::Counter};
 
 pub struct CounterProvider {
-    counter: Counter::CounterInstance<(), AlloyProvider>,
+    counter: Counter::CounterInstance<AlloyProvider, Ethereum>,
 }
 
 impl CounterProvider {
@@ -15,7 +15,7 @@ impl CounterProvider {
 
     pub async fn get_current_round(&self) -> Result<u64> {
         let current = self.counter.number().call().await?;
-        Ok(current._0.to::<u64>())
+        Ok(current.to::<u64>())
     }
 
     pub fn encode_round(&self, round: u64) -> Vec<u8> {

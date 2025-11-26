@@ -2,14 +2,14 @@ use ark_bn254::Fr;
 use bn254::{Bn254, PrivateKey};
 use clap::{Arg, Command};
 use commonware_avs_node::contributor::{AggregationInput, Contribute};
-use commonware_eigenlayer::network_configuration::{EigenStakingClient, QuorumInfo};
+use commonware_avs_usecases::CounterValidator;
+use commonware_avs_usecases::types::CounterTaskData;
+use commonware_avs_usecases::{EigenStakingClient, QuorumInfo};
 use commonware_p2p::authenticated::lookup::{self, Network};
 use commonware_runtime::{
     Metrics, Runner, Spawner,
     tokio::{self},
 };
-use commonware_usecase_counter::CounterValidator;
-use commonware_usecase_counter::types::CounterTaskData;
 use commonware_utils::NZU32;
 use eigen_logging::log_level::LogLevel;
 use governor::Quota;

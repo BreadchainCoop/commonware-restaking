@@ -37,7 +37,7 @@ services:
   node-1:
     build:
       context: .
-      dockerfile: usecase-counter/node/Dockerfile
+      dockerfile: usecases/counter/node/Dockerfile
     pull_policy: always
     platform: linux/amd64
     depends_on:
@@ -71,7 +71,7 @@ services:
   node-2:
     build:
       context: .
-      dockerfile: usecase-counter/node/Dockerfile
+      dockerfile: usecases/counter/node/Dockerfile
     pull_policy: always
     platform: linux/amd64
     depends_on:
@@ -105,7 +105,7 @@ services:
   node-3:
     build:
       context: .
-      dockerfile: usecase-counter/node/Dockerfile
+      dockerfile: usecases/counter/node/Dockerfile
     pull_policy: always
     platform: linux/amd64
     depends_on:
@@ -139,7 +139,7 @@ services:
   router:
     build:
       context: .
-      dockerfile: usecase-counter/router/Dockerfile
+      dockerfile: usecases/counter/router/Dockerfile
     platform: linux/amd64
     depends_on:
       eigenlayer:
