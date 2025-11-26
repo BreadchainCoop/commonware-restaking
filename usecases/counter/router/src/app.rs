@@ -4,16 +4,18 @@ mod factories;
 mod provider;
 use ark_bn254::Fr;
 use clap::{Arg, Command, value_parser};
-use commonware_avs_core::bn254::{Bn254, PrivateKey};
+use commonware_avs_core::bn254::{Bn254, PrivateKey, PublicKey};
 use commonware_avs_router::orchestrator::traits::OrchestratorTrait;
 use commonware_avs_usecases::{EigenStakingClient, QuorumInfo};
 use commonware_cryptography::Signer;
+use commonware_p2p::Manager;
 use commonware_p2p::authenticated::lookup::{self, Network};
 use commonware_runtime::{
     Metrics, Runner, Spawner,
     tokio::{self},
 };
 use commonware_utils::NZU32;
+use commonware_utils::set::OrderedAssociated;
 use eigen_logging::log_level::LogLevel;
 use governor::Quota;
 use serde::{Deserialize, Serialize};
@@ -106,7 +108,7 @@ pub fn main() {
     const MAX_MESSAGE_SIZE: usize = 1024 * 1024; // 1 MB
     let my_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port);
     let my_local_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
-    let p2p_cfg = lookup::Config::aggressive(
+    let p2p_cfg = lookup::Config::local(
         signer.clone(),
         APPLICATION_NAMESPACE,
         my_addr,
@@ -117,7 +119,7 @@ pub fn main() {
     // Start runtime
     runner.start(|context| async move {
         let (mut network, mut oracle) = Network::new(context.with_label("network"), p2p_cfg);
-        let mut recipients: Vec<(commonware_avs_core::bn254::PublicKey, SocketAddr)>;
+        let mut recipients: Vec<(PublicKey, SocketAddr)>;
         let quorum_infos;
         {
             eigen_logging::init_logger(LogLevel::Debug);
@@ -170,7 +172,8 @@ pub fn main() {
         let _ = tracing::subscriber::set_default(subscriber);
 
         // Provide authorized peers
-        oracle.register(0, recipients).await;
+        let authorized = OrderedAssociated::from_iter(recipients);
+        oracle.update(0, authorized).await;
 
         // Parse contributors from operator states
         let mut contributors = Vec::new();

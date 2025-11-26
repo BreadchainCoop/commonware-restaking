@@ -1,7 +1,7 @@
 use super::mock::{MockContributor, MockReceiver, MockSender};
 use crate::contributor::{AggregationInput, Contribute, ContributorBase};
 use ark_bn254::Fr;
-use commonware_avs_core::bn254::{Bn254, PrivateKey};
+use commonware_avs_core::bn254::{Bn254, G1PublicKey, PrivateKey};
 use commonware_cryptography::Signer;
 use std::collections::HashMap;
 
@@ -180,8 +180,7 @@ mod aggregation_input_tests {
         let mut g1_map = HashMap::new();
         let signer = create_test_bn254(50);
         // Create a simple G1 key for testing (using default coordinates)
-        let g1_key =
-            commonware_avs_core::bn254::G1PublicKey::create_from_g1_coordinates("0", "0").unwrap();
+        let g1_key = G1PublicKey::create_from_g1_coordinates("0", "0").unwrap();
         g1_map.insert(signer.public_key(), g1_key);
 
         let aggregation_input = AggregationInput::new(threshold, g1_map);
