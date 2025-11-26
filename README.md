@@ -6,73 +6,37 @@ Monorepo for the Commonware AVS reference implementation on EigenLayer. It conta
 - [`bindings`](./bindings): Standalone crate for on-chain contract bindings
 - [`router`](./router): Generic service library for running an aggregation/orchestrator service
 - [`node`](./node): Generic service library for running a contributor/operator node
-- [`usecases`](./usecases): Examples and reference AVS usecases demonstrating integration with the core, router, and node libraries
-- [`usecases/counter`](./usecases/counter): Implementation of the example "counter" AVS usecase
-- [`config`](./config): Configuration files for local network, contract deployments, and test keys
-- [`scripts`](./scripts): Helper scripts for end-to-end validation and local integration testing
-- `docker-compose.yml`: One-command stack runner (Ethereum, EigenLayer, router, operator nodes, signer)
 
-## Example
+### Test
 
-[Counter](https://github.com/BreadchainCoop/commonware-avs-counter) demonstrates a simple end‑to‑end AVS flow:
+#### Running Rust Tests
 
-- BLS quorum signing (n‑of‑m) by [`node`](./usecases/counter/node) operators
-- Aggregation and on‑chain execution by [`router`](./usercases/counter/router) (increments a counter contract)
-- Message validation and payload hashing via [`core`](./core) wire + validator utilities
-
-> [!NOTE]
-> Usecase implementations (like `counter`) will be moved to dedicated repositories (e.g., `commonware-avs-counter`). This repository will converge on providing the core AVS libraries (shared protocol types, bindings, wire/validators) and base services, and is intended to serve primarily as a reusable library layer for downstream usecases.
-
-## Quick Start
-
-### Prerequisites
-- Docker and Docker Compose
-- Git
-
-### Local Development
-
-1. **Configure environment:**
-```bash
-cp example.env .env
-```
-
-For LOCAL mode (default), the example.env is pre-configured. You'll need to set a private key:
-```bash
-# Use Anvil's default test key for local development
-echo "PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" >> .env
-echo "FUNDED_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" >> .env
-```
-
-2. **Start all services:**
-```bash
-docker compose up -d
-```
-
-This will automatically build or pull the latest pre-built images (from ghcr.io) and start:
-- Ethereum node (Anvil fork)
-- EigenLayer contract deployment
-- Signer service
-- 3 operator nodes
-- Router/orchestrator
-
-3. **Monitor services:**
-```bash
-# View logs
-docker compose logs -f router
-
-# Check service status
-docker compose ps
-```
-
-### Stop Services
+To run all Rust tests in this repository, use the following command:
 
 ```bash
-# Stop all services
-docker compose down
-
-# Stop and remove volumes (clean state)
-docker compose down -v
+cargo test --all-features
 ```
+
+This will build and run all unit and integration tests for all crates in the workspace.
+
+For more targeted testing, you can run:
+
+```bash
+# Run tests in a specific crate
+cargo test -p <crate-name>
+```
+
+or
+
+```bash
+# Run a specific test by name
+cargo test <test_name>
+```
+
+##### Note
+
+- All code is checked for formatting and lint errors using `cargo fmt` and `cargo clippy`.
+- Continuous Integration runs all tests automatically on GitHub Actions under `.github/workflows/rust-ci.yml`.
 
 ## Licensing
 

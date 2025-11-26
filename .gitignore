@@ -1,11 +1,5 @@
-.DS_Store
+# Rust build artifacts
 /target
-.env
-config/config.json
-config/.nodes/
-!config/.nodes/.gitkeep
-!config/.nodes/operator_keys/
-!config/.nodes/operator_keys/.gitkeep
 
 # Test artifacts
 /logs
@@ -15,3 +9,6 @@ test_processes.pids
 
 # Script build artifacts
 scripts/target
+
+# Mac OS files
+.DS_Store
