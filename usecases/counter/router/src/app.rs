@@ -3,9 +3,8 @@ mod executor;
 mod factories;
 mod provider;
 use ark_bn254::Fr;
-use bn254::Bn254;
-use bn254::PrivateKey;
 use clap::{Arg, Command, value_parser};
+use commonware_avs_core::bn254::{Bn254, PrivateKey};
 use commonware_avs_router::orchestrator::traits::OrchestratorTrait;
 use commonware_avs_usecases::{EigenStakingClient, QuorumInfo};
 use commonware_cryptography::Signer;
@@ -118,7 +117,7 @@ pub fn main() {
     // Start runtime
     runner.start(|context| async move {
         let (mut network, mut oracle) = Network::new(context.with_label("network"), p2p_cfg);
-        let mut recipients: Vec<(bn254::PublicKey, SocketAddr)>;
+        let mut recipients: Vec<(commonware_avs_core::bn254::PublicKey, SocketAddr)>;
         let quorum_infos;
         {
             eigen_logging::init_logger(LogLevel::Debug);

@@ -1,4 +1,4 @@
-use bn254::{G1PublicKey, PublicKey, Signature};
+use commonware_avs_core::bn254::{G1PublicKey, PublicKey, Signature};
 
 /// BLS-specific verification data that includes G1 public keys
 #[derive(Debug, Clone)]

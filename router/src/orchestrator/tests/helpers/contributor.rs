@@ -1,5 +1,5 @@
 use ark_bn254::Fr;
-use bn254::{Bn254, G1PublicKey, PrivateKey, PublicKey};
+use commonware_avs_core::bn254::{Bn254, G1PublicKey, PrivateKey, PublicKey};
 use commonware_cryptography::Signer;
 use std::collections::HashMap;
 use std::str::FromStr;

@@ -1,11 +1,11 @@
 use crate::contributor::types::AggregationData;
 use crate::contributor::{AggregationInput, Contribute, ContributorBase};
 use anyhow::Result;
-use bn254::{
-    self, Bn254 as EllipticCurve, PublicKey as PubKey, Signature as Sig, aggregate_signatures,
+use bytes::Bytes;
+use commonware_avs_core::bn254::{
+    Bn254 as EllipticCurve, PublicKey as PubKey, Signature as Sig, aggregate_signatures,
     aggregate_verify,
 };
-use bytes::Bytes;
 use commonware_avs_core::validator::ValidatorTrait;
 use commonware_avs_core::wire::{self, aggregation::Payload};
 use commonware_codec::{EncodeSize, ReadExt, Write};

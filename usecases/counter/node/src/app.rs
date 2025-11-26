@@ -1,6 +1,6 @@
 use ark_bn254::Fr;
-use bn254::{Bn254, PrivateKey};
 use clap::{Arg, Command};
+use commonware_avs_core::bn254::{Bn254, PrivateKey};
 use commonware_avs_node::contributor::{AggregationInput, Contribute};
 use commonware_avs_usecases::CounterValidator;
 use commonware_avs_usecases::types::CounterTaskData;
@@ -147,7 +147,7 @@ pub fn main() {
 
     // Start runtime
     runner.start(|context: tokio::Context| async move {
-        let mut recipients: Vec<(bn254::PublicKey, SocketAddr)> = Vec::new();
+        let mut recipients: Vec<(commonware_avs_core::bn254::PublicKey, SocketAddr)> = Vec::new();
         // Scoped to avoid configuring two loggers
         let orchestrator_pub_key;
         {
@@ -186,13 +186,14 @@ pub fn main() {
                     }
                 }
             }
-            orchestrator_pub_key = bn254::PublicKey::create_from_g2_coordinates(
-                &orchestrator_config.g2_x1,
-                &orchestrator_config.g2_x2,
-                &orchestrator_config.g2_y1,
-                &orchestrator_config.g2_y2,
-            )
-            .unwrap();
+            orchestrator_pub_key =
+                commonware_avs_core::bn254::PublicKey::create_from_g2_coordinates(
+                    &orchestrator_config.g2_x1,
+                    &orchestrator_config.g2_x2,
+                    &orchestrator_config.g2_y1,
+                    &orchestrator_config.g2_y2,
+                )
+                .unwrap();
 
             let orchestrator_addr = orchestrator_config
                 .address

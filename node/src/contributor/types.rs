@@ -1,5 +1,5 @@
-use bn254::{G1PublicKey, PublicKey as PubKey};
 use bytes::{Buf, BufMut};
+use commonware_avs_core::bn254::{G1PublicKey, PublicKey as PubKey};
 use commonware_codec::{EncodeSize, Error, Read, Write};
 use std::collections::HashMap;
 

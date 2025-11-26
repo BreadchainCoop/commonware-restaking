@@ -1,5 +1,8 @@
-use bn254::{Bn254, G1PublicKey, PublicKey, Signature as Bn254Signature};
 use bytes::Bytes;
+use commonware_avs_core::bn254::{
+    Bn254, G1PublicKey, PublicKey, Signature as Bn254Signature, aggregate_signatures,
+    aggregate_verify,
+};
 use commonware_avs_core::validator::ValidatorTrait;
 use commonware_avs_core::wire::{Aggregation, aggregation::Payload};
 use commonware_codec::{EncodeSize, ReadExt, Write};
@@ -259,10 +262,10 @@ where
                             participating.push(contributor.clone());
                             signatures.push(signature.clone());
                         }
-                        let agg_signature = bn254::aggregate_signatures(&signatures).unwrap();
+                        let agg_signature = aggregate_signatures(&signatures).unwrap();
 
                         // Verify aggregated signature (already verified individual signatures so should never fail)
-                        if !bn254::aggregate_verify(&participating, None, &expected_digest, &agg_signature) {
+                        if !aggregate_verify(&participating, None, &expected_digest, &agg_signature) {
                             panic!("failed to verify aggregated signature");
                         }
 

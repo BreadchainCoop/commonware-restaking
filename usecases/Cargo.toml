@@ -32,7 +32,6 @@ serde = { workspace = true }
 axum = { workspace = true }
 clap = { workspace = true }
 ark-bn254 = { workspace = true }
-bn254 = { workspace = true }
 eigen-logging = { workspace = true }
 governor = { workspace = true }
 commonware-p2p = { workspace = true }

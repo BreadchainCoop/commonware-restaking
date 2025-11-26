@@ -1,5 +1,5 @@
 use ark_bn254::Fr;
-use bn254::{Bn254, PrivateKey};
+use commonware_avs_core::bn254::{Bn254, PrivateKey};
 use std::str::FromStr;
 
 /// Helper function to create a test signer for testing purposes.
