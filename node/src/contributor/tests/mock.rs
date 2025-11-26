@@ -1,7 +1,7 @@
 use crate::contributor::{AggregationInput, Contribute, ContributorBase};
 use anyhow::Result;
 use ark_bn254::Fr;
-use bn254::{Bn254, PrivateKey, PublicKey, Signature as Bn254Signature};
+use commonware_avs_core::bn254::{Bn254, PrivateKey, PublicKey, Signature};
 use commonware_cryptography::Signer;
 use commonware_p2p::{Receiver, Sender};
 use std::collections::HashMap;
@@ -21,7 +21,7 @@ pub struct MockContributor {
 impl ContributorBase for MockContributor {
     type PublicKey = PublicKey;
     type Signer = Bn254;
-    type Signature = Bn254Signature;
+    type Signature = Signature;
 
     fn is_orchestrator(&self, sender: &Self::PublicKey) -> bool {
         &self.orchestrator == sender

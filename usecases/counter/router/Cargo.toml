@@ -17,7 +17,6 @@ commonware-p2p = { workspace = true }
 commonware-utils = { workspace = true }
 clap = { workspace = true }
 ark-bn254 = { workspace = true }
-bn254 = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 dotenv = { workspace = true }

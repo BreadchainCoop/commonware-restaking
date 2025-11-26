@@ -3,7 +3,7 @@ use alloy::{network::Ethereum, providers::Provider};
 use alloy_primitives::{Address, Bytes, FixedBytes, U256};
 use anyhow::Result;
 use async_trait::async_trait;
-use bn254::{G1PublicKey, PublicKey};
+use commonware_avs_core::bn254::{G1PublicKey, PublicKey, Signature, get_points};
 use commonware_utils::hex;
 use eigen_crypto_bls::convert_to_g1_point;
 use std::{collections::HashMap, str::FromStr};
@@ -100,21 +100,21 @@ impl<H: BlsSignatureVerificationHandler> VerificationExecutor<H::TaskData, Verif
     ) -> Result<ExecutionResult> {
         // Convert generic VerificationData to BLS-specific BlsVerificationData
         // Deserialize signatures
-        let signatures: Vec<bn254::Signature> = verification_data
+        let signatures: Vec<Signature> = verification_data
             .signatures
             .iter()
             .map(|bytes| {
-                bn254::Signature::try_from(bytes.as_slice())
+                Signature::try_from(bytes.as_slice())
                     .map_err(|e| anyhow::anyhow!("Failed to deserialize signature: {:?}", e))
             })
             .collect::<Result<Vec<_>>>()?;
 
         // Deserialize public keys
-        let public_keys: Vec<bn254::PublicKey> = verification_data
+        let public_keys: Vec<PublicKey> = verification_data
             .public_keys
             .iter()
             .map(|bytes| {
-                bn254::PublicKey::try_from(bytes.as_slice())
+                PublicKey::try_from(bytes.as_slice())
                     .map_err(|e| anyhow::anyhow!("Failed to deserialize public key: {:?}", e))
             })
             .collect::<Result<Vec<_>>>()?;
@@ -138,7 +138,7 @@ impl<H: BlsSignatureVerificationHandler> VerificationExecutor<H::TaskData, Verif
 
             let mut g1_keys = Vec::new();
             for chunk in context.chunks(G1_COMPRESSED_SIZE) {
-                let g1_pubkey = bn254::G1PublicKey::try_from(chunk)
+                let g1_pubkey = G1PublicKey::try_from(chunk)
                     .map_err(|e| anyhow::anyhow!("Failed to deserialize G1 public key: {:?}", e))?;
                 g1_keys.push(g1_pubkey);
             }
@@ -170,7 +170,7 @@ impl<H: BlsSignatureVerificationHandler> BlsExecutorTrait<H::TaskData>
         let participating_g1 = &verification_data.g1_public_keys;
         let participating = &verification_data.public_keys;
         let signatures = &verification_data.signatures;
-        let (_apk, _apk_g2, asig) = bn254::get_points(participating_g1, participating, signatures)
+        let (_apk, _apk_g2, asig) = get_points(participating_g1, participating, signatures)
             .ok_or_else(|| anyhow::anyhow!("Failed to get points"))?;
         let asig_g1 = convert_to_g1_point(asig)
             .map_err(|e| anyhow::anyhow!("Failed to convert to G1 point: {}", e))?;

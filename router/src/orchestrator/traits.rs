@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use bn254::PublicKey;
+use commonware_avs_core::bn254::PublicKey;
 use commonware_p2p::{Receiver, Sender};
 
 /// Trait defining the interface for orchestrator implementations.

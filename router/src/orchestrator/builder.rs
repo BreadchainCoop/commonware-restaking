@@ -1,4 +1,4 @@
-use bn254::{Bn254, G1PublicKey, PublicKey};
+use commonware_avs_core::bn254::{Bn254, G1PublicKey, PublicKey};
 use commonware_avs_core::validator::ValidatorTrait;
 use commonware_runtime::Clock;
 use std::collections::HashMap;
