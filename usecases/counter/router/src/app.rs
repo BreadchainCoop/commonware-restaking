@@ -124,14 +124,35 @@ pub fn main() {
         let (mut network, mut oracle) = Network::new(context.with_label("network"), p2p_cfg);
         let mut recipients: Vec<(PublicKey, SocketAddr)>;
         let quorum_infos;
+        let quorum_number: usize;
         {
             eigen_logging::init_logger(LogLevel::Debug);
             // Get operator states and configure allowed peers
             quorum_infos = get_operator_states()
                 .await
                 .expect("Failed to get operator states");
+
+            // Parse quorum number from environment, defaulting to 0
+            quorum_number = std::env::var("QUORUM_NUMBER")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0);
+
+            if quorum_number >= quorum_infos.len() {
+                panic!(
+                    "QUORUM_NUMBER {} is out of range (available quorums: 0..{})",
+                    quorum_number,
+                    quorum_infos.len()
+                );
+            }
+            tracing::info!(
+                quorum_number,
+                total_quorums = quorum_infos.len(),
+                "using quorum"
+            );
+
             recipients = Vec::new();
-            let participants = quorum_infos[0].operators.clone(); //TODO: Fix hardcoded quorum_number
+            let participants = quorum_infos[quorum_number].operators.clone();
             if participants.is_empty() {
                 panic!("Please provide at least one participant");
             }
@@ -181,7 +202,7 @@ pub fn main() {
         // Parse contributors from operator states
         let mut contributors = Vec::new();
         let mut contributors_map = HashMap::new();
-        let operators = &quorum_infos[0].operators;
+        let operators = &quorum_infos[quorum_number].operators;
         if operators.is_empty() {
             panic!("Please provide at least one contributor");
         }
