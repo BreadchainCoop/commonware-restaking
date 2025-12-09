@@ -48,13 +48,13 @@ jobs:
           docker pull ghcr.io/breadchaincoop/ethereum:dev
           docker pull ghcr.io/breadchaincoop/eigenlayer:dev
           docker pull ghcr.io/layr-labs/cerberus:0.0.2
-          docker pull bitnami/kubectl:1.28
+          docker pull bitnami/kubectl:latest
           docker pull busybox:1.36
 
           kind load docker-image ghcr.io/breadchaincoop/ethereum:dev --name avs-test
           kind load docker-image ghcr.io/breadchaincoop/eigenlayer:dev --name avs-test
           kind load docker-image ghcr.io/layr-labs/cerberus:0.0.2 --name avs-test
-          kind load docker-image bitnami/kubectl:1.28 --name avs-test
+          kind load docker-image bitnami/kubectl:latest --name avs-test
           kind load docker-image busybox:1.36 --name avs-test
 
       - name: Apply K8s manifests

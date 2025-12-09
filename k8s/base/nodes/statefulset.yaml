@@ -19,7 +19,7 @@ spec:
     spec:
       initContainers:
         - name: wait-for-eigenlayer
-          image: bitnami/kubectl:1.28
+          image: bitnami/kubectl:latest
           command:
             - sh
             - -c
