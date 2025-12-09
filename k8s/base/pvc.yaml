@@ -9,4 +9,5 @@ spec:
   resources:
     requests:
       storage: 1Gi
-  storageClassName: standard
+  # storageClassName intentionally omitted to use cluster default
+  # CI overlay patches this to "standard" for Kind compatibility

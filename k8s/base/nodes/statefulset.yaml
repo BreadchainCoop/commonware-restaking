@@ -66,12 +66,12 @@ spec:
             - sh
             - -c
             - |
+              # In K8s, each pod has its own IP, so all nodes can listen on the same port
               INDEX=${POD_NAME##*-}
-              PORT=$((3001 + INDEX))
               KEY_NUM=$((INDEX + 1))
               KEY_FILE="/app/.nodes/operator_keys/testacc${KEY_NUM}.private.bls.key.json"
-              echo "Starting node with index=$INDEX, port=$PORT, key=$KEY_FILE"
-              /app/commonware-avs-node-app --key-file "$KEY_FILE" --port "$PORT" --orchestrator /app/config/public_orchestrator.json
+              echo "Starting node with index=$INDEX, port=3001, key=$KEY_FILE"
+              /app/commonware-avs-node-app --key-file "$KEY_FILE" --port "3001" --orchestrator /app/config/public_orchestrator.json
           volumeMounts:
             - name: nodes-data
               mountPath: /app/.nodes

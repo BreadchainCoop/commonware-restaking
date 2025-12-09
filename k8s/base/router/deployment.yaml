@@ -23,14 +23,14 @@ spec:
             - -c
             - |
               echo "Waiting for all AVS nodes to be ready..."
+              # All nodes listen on port 3001 (each pod has its own IP in K8s)
               for i in 0 1 2; do
                 NODE_HOST="avs-node-$i.avs-nodes.commonware-avs.svc.cluster.local"
-                NODE_PORT=$((3001 + i))
-                echo "Waiting for $NODE_HOST:$NODE_PORT..."
-                until nc -z "$NODE_HOST" "$NODE_PORT"; do
+                echo "Waiting for $NODE_HOST:3001..."
+                until nc -z "$NODE_HOST" 3001; do
                   sleep 2
                 done
-                echo "$NODE_HOST:$NODE_PORT is ready!"
+                echo "$NODE_HOST:3001 is ready!"
               done
               echo "All nodes are ready!"
       containers:
@@ -58,11 +58,18 @@ spec:
             - --port
             - "3000"
           volumeMounts:
+            # Security: Only mount the deployment artifact, not operator keys
             - name: nodes-data
-              mountPath: /app/.nodes
+              mountPath: /app/.nodes/avs_deploy.json
+              subPath: avs_deploy.json
               readOnly: true
             - name: config
-              mountPath: /app/config
+              mountPath: /app/config/public_orchestrator.json
+              subPath: public_orchestrator.json
+            - name: router-secret
+              mountPath: /app/config/router_orchestrator.json
+              subPath: router_orchestrator.json
+              readOnly: true
           resources:
             requests:
               memory: "256Mi"
@@ -87,3 +94,6 @@ spec:
         - name: config
           configMap:
             name: avs-config
+        - name: router-secret
+          secret:
+            secretName: router-secret

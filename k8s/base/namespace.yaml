@@ -4,4 +4,4 @@ metadata:
   name: commonware-avs
   labels:
     app.kubernetes.io/name: commonware-avs
-    app.kubernetes.io/part-of: commonware-restaking
+    app.kubernetes.io/part-of: commonware-avs

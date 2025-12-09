@@ -20,10 +20,10 @@ data:
           "socketAddress": "avs-node-0.avs-nodes.commonware-avs.svc.cluster.local:3001"
         },
         "testacc2": {
-          "socketAddress": "avs-node-1.avs-nodes.commonware-avs.svc.cluster.local:3002"
+          "socketAddress": "avs-node-1.avs-nodes.commonware-avs.svc.cluster.local:3001"
         },
         "testacc3": {
-          "socketAddress": "avs-node-2.avs-nodes.commonware-avs.svc.cluster.local:3003"
+          "socketAddress": "avs-node-2.avs-nodes.commonware-avs.svc.cluster.local:3001"
         }
       }
     }
@@ -36,10 +36,7 @@ data:
       "port": "3000",
       "address": "router"
     }
-  router_orchestrator.json: |
-    {
-      "privateKey": "21747297277459394737337554964532622739983285244437107194284923826011566394548"
-    }
+  # NOTE: router_orchestrator.json with privateKey is in secret.yaml for security
 ---
 apiVersion: v1
 kind: ConfigMap

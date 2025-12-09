@@ -10,12 +10,8 @@ spec:
     app: avs-node
   clusterIP: None
   ports:
-    - name: grpc-0
+    # Headless service for StatefulSet - all pods listen on port 3001
+    # Access via: avs-node-{0,1,2}.avs-nodes.commonware-avs.svc.cluster.local:3001
+    - name: grpc
       port: 3001
-      targetPort: 3001
-    - name: grpc-1
-      port: 3002
-      targetPort: 3001
-    - name: grpc-2
-      port: 3003
       targetPort: 3001

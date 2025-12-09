@@ -213,7 +213,9 @@ k8s/
 ├── base/
 │   ├── kustomization.yaml
 │   ├── namespace.yaml
+│   ├── rbac.yaml
 │   ├── configmap.yaml
+│   ├── secret.yaml
 │   ├── pvc.yaml
 │   ├── ethereum/
 │   │   ├── deployment.yaml
@@ -233,11 +235,13 @@ k8s/
     ├── ci/
     │   ├── kustomization.yaml
     │   └── patches/
-    │       └── image-pull-policy.yaml
+    │       ├── image-pull-policy.yaml
+    │       ├── nodeport-services.yaml
+    │       └── pvc-storage-class.yaml
     └── local/
         ├── kustomization.yaml
         └── patches/
-            └── node-ports.yaml
+            └── nodeport-services.yaml
 ```
 
 ### 6.2 Key Resource Definitions
@@ -270,15 +274,29 @@ data:
         "uri": "metadataURI"
       },
       "operators": {
-        "testacc1": {"socketAddress": "avs-node-0.avs-nodes.commonware-avs.svc:3001"},
-        "testacc2": {"socketAddress": "avs-node-1.avs-nodes.commonware-avs.svc:3002"},
-        "testacc3": {"socketAddress": "avs-node-2.avs-nodes.commonware-avs.svc:3003"}
+        "testacc1": {"socketAddress": "avs-node-0.avs-nodes.commonware-avs.svc.cluster.local:3001"},
+        "testacc2": {"socketAddress": "avs-node-1.avs-nodes.commonware-avs.svc.cluster.local:3001"},
+        "testacc3": {"socketAddress": "avs-node-2.avs-nodes.commonware-avs.svc.cluster.local:3001"}
       }
     }
   public_orchestrator.json: |
     <orchestrator configuration>
+  # NOTE: router_orchestrator.json with privateKey is in secret.yaml for security
+```
+
+#### Secret (router-secret)
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: router-secret
+  namespace: commonware-avs
+type: Opaque
+stringData:
+  # WARNING: This is a TEST-ONLY private key for development/CI environments.
+  # NEVER use this key in production.
   router_orchestrator.json: |
-    <router orchestrator configuration>
+    {"privateKey": "<test-only-key>"}
 ```
 
 #### PersistentVolumeClaim
@@ -354,7 +372,7 @@ spec:
     spec:
       initContainers:
         - name: wait-for-eigenlayer
-          image: bitnami/kubectl:latest
+          image: bitnami/kubectl:1.28
           command:
             - sh
             - -c
@@ -384,10 +402,11 @@ spec:
             - sh
             - -c
             - |
+              # In K8s, each pod has its own IP, so all nodes can listen on the same port
               INDEX=${POD_NAME##*-}
-              PORT=$((3001 + INDEX))
-              KEY_FILE="/app/.nodes/operator_keys/testacc$((INDEX + 1)).private.bls.key.json"
-              /app/commonware-avs-node-app --key-file $KEY_FILE --port $PORT --orchestrator /app/config/public_orchestrator.json
+              KEY_NUM=$((INDEX + 1))
+              KEY_FILE="/app/.nodes/operator_keys/testacc${KEY_NUM}.private.bls.key.json"
+              /app/commonware-avs-node-app --key-file $KEY_FILE --port 3001 --orchestrator /app/config/public_orchestrator.json
           volumeMounts:
             - name: nodes-data
               mountPath: /app/.nodes
@@ -467,11 +486,18 @@ spec:
             - --port
             - "3000"
           volumeMounts:
+            # Security: Only mount the deployment artifact, not operator keys
             - name: nodes-data
-              mountPath: /app/.nodes
+              mountPath: /app/.nodes/avs_deploy.json
+              subPath: avs_deploy.json
               readOnly: true
             - name: config
-              mountPath: /app/config
+              mountPath: /app/config/public_orchestrator.json
+              subPath: public_orchestrator.json
+            - name: router-secret
+              mountPath: /app/config/router_orchestrator.json
+              subPath: router_orchestrator.json
+              readOnly: true
           readinessProbe:
             tcpSocket:
               port: app
@@ -489,6 +515,9 @@ spec:
         - name: config
           configMap:
             name: avs-config
+        - name: router-secret
+          secret:
+            secretName: router-secret
 ```
 
 ## 7. CI/CD Workflow Updates
