@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: router
+  namespace: commonware-avs
+  labels:
+    app: router
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: router
+  template:
+    metadata:
+      labels:
+        app: router
+    spec:
+      initContainers:
+        - name: wait-for-nodes
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for all AVS nodes to be ready..."
+              for i in 0 1 2; do
+                NODE_HOST="avs-node-$i.avs-nodes.commonware-avs.svc.cluster.local"
+                NODE_PORT=$((3001 + i))
+                echo "Waiting for $NODE_HOST:$NODE_PORT..."
+                until nc -z "$NODE_HOST" "$NODE_PORT"; do
+                  sleep 2
+                done
+                echo "$NODE_HOST:$NODE_PORT is ready!"
+              done
+              echo "All nodes are ready!"
+      containers:
+        - name: router
+          image: ghcr.io/breadchaincoop/commonware-avs-router:dev
+          ports:
+            - containerPort: 3000
+              name: app
+            - containerPort: 8080
+              name: ingress
+          env:
+            - name: HTTP_RPC
+              value: "http://ethereum-svc:8545"
+            - name: WS_RPC
+              value: "ws://ethereum-svc:8545"
+            - name: AVS_DEPLOYMENT_PATH
+              value: "/app/.nodes/avs_deploy.json"
+          envFrom:
+            - configMapRef:
+                name: env-config
+          command:
+            - /app/commonware-avs-router-app
+            - --key-file
+            - /app/config/router_orchestrator.json
+            - --port
+            - "3000"
+          volumeMounts:
+            - name: nodes-data
+              mountPath: /app/.nodes
+              readOnly: true
+            - name: config
+              mountPath: /app/config
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+          readinessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+      volumes:
+        - name: nodes-data
+          persistentVolumeClaim:
+            claimName: nodes-data
+        - name: config
+          configMap:
+            name: avs-config

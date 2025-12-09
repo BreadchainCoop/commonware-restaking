@@ -1,0 +1,105 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: avs-node
+  namespace: commonware-avs
+  labels:
+    app: avs-node
+spec:
+  serviceName: avs-nodes
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: avs-node
+  template:
+    metadata:
+      labels:
+        app: avs-node
+    spec:
+      initContainers:
+        - name: wait-for-eigenlayer
+          image: bitnami/kubectl:1.28
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for eigenlayer-setup job to complete..."
+              until kubectl get job eigenlayer-setup -n commonware-avs -o jsonpath='{.status.succeeded}' 2>/dev/null | grep -q "1"; do
+                echo "Waiting for eigenlayer-setup job..."
+                sleep 5
+              done
+              echo "EigenLayer setup complete!"
+        - name: wait-for-ethereum
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for ethereum to be ready..."
+              until nc -z ethereum-svc 8545; do
+                echo "Waiting for ethereum-svc:8545..."
+                sleep 2
+              done
+              echo "Ethereum is ready!"
+      containers:
+        - name: node
+          image: ghcr.io/breadchaincoop/commonware-avs-node:dev
+          ports:
+            - containerPort: 3001
+              name: grpc
+          env:
+            - name: HTTP_RPC
+              value: "http://ethereum-svc:8545"
+            - name: WS_RPC
+              value: "ws://ethereum-svc:8545"
+            - name: AVS_DEPLOYMENT_PATH
+              value: "/app/.nodes/avs_deploy.json"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          envFrom:
+            - configMapRef:
+                name: env-config
+          command:
+            - sh
+            - -c
+            - |
+              INDEX=${POD_NAME##*-}
+              PORT=$((3001 + INDEX))
+              KEY_NUM=$((INDEX + 1))
+              KEY_FILE="/app/.nodes/operator_keys/testacc${KEY_NUM}.private.bls.key.json"
+              echo "Starting node with index=$INDEX, port=$PORT, key=$KEY_FILE"
+              /app/commonware-avs-node-app --key-file "$KEY_FILE" --port "$PORT" --orchestrator /app/config/public_orchestrator.json
+          volumeMounts:
+            - name: nodes-data
+              mountPath: /app/.nodes
+              readOnly: true
+            - name: config
+              mountPath: /app/config
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+          readinessProbe:
+            tcpSocket:
+              port: 3001
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 3001
+            initialDelaySeconds: 30
+            periodSeconds: 10
+      serviceAccountName: avs-service-account
+      volumes:
+        - name: nodes-data
+          persistentVolumeClaim:
+            claimName: nodes-data
+        - name: config
+          configMap:
+            name: avs-config

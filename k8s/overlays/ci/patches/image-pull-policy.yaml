@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ethereum
+  namespace: commonware-avs
+spec:
+  template:
+    spec:
+      containers:
+        - name: ethereum
+          imagePullPolicy: IfNotPresent
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: signer
+  namespace: commonware-avs
+spec:
+  template:
+    spec:
+      containers:
+        - name: signer
+          imagePullPolicy: IfNotPresent
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: router
+  namespace: commonware-avs
+spec:
+  template:
+    spec:
+      containers:
+        - name: router
+          imagePullPolicy: Never
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: avs-node
+  namespace: commonware-avs
+spec:
+  template:
+    spec:
+      containers:
+        - name: node
+          imagePullPolicy: Never
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: eigenlayer-setup
+  namespace: commonware-avs
+spec:
+  template:
+    spec:
+      containers:
+        - name: eigenlayer
+          imagePullPolicy: IfNotPresent
