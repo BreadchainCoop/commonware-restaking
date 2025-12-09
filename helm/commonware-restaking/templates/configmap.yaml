@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "commonware-avs.config.fullname" . }}
+  labels:
+    {{- include "commonware-avs.labels" . | nindent 4 }}
+data:
+  # EigenLayer setup config - dynamically generates operator socket addresses
+  # This replaces config/config.example.json with Kubernetes service names
+  config.json: |
+    {
+        "quorum": {
+            "minimumStake": "1",
+            "maxOperatorCount": 32,
+            "kickBIPsOfOperatorStake": 10000,
+            "kickBIPsOfTotalStake": 100
+        },
+        "metadata": {
+            "uri": "metadataURI"
+        },
+        "operators": {
+            {{- $nodeCount := int .Values.global.nodeCount }}
+            {{- range $i := until $nodeCount }}
+            "testacc{{ add $i 1 }}": {
+                "socketAddress": "{{ include "commonware-avs.node.fullname" $ }}-{{ add $i 1 }}:{{ add (int $.Values.node.basePort) $i }}"
+            }{{ if lt (add $i 1) $nodeCount }},{{ end }}
+            {{- end }}
+        }
+    }
+  {{- if .Values.orchestrator.publicConfig }}
+  # Public orchestrator config - optional override
+  # If not provided, will use the file from the image at /app/config/public_orchestrator.json
+  public_orchestrator.json: |
+{{ .Values.orchestrator.publicConfig | indent 4 }}
+  {{- end }}

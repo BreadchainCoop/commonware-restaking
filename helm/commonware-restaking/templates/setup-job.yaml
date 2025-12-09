@@ -1,0 +1,120 @@
+{{- if and .Values.ethereum.enabled .Values.secrets.forkUrl }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "commonware-avs.setup.fullname" . }}
+  labels:
+    {{- include "commonware-avs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: setup
+  annotations:
+    # Only run on fresh install, not on upgrades (to preserve existing deployment state)
+    "helm.sh/hook": post-install
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        {{- include "commonware-avs.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: setup
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+        # Wait for ethereum to be ready
+        - name: wait-for-ethereum
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Ethereum RPC..."
+              until nc -z {{ include "commonware-avs.ethereum.fullname" . }} {{ .Values.ethereum.service.port }}; do
+                echo "Ethereum not ready, waiting..."
+                sleep 5
+              done
+              echo "Ethereum is ready!"
+
+      containers:
+        # Run EigenLayer setup (creates operator keys and avs_deploy.json)
+        # Note: The eigenlayer container may exit with non-zero code even on success,
+        # so we wrap it to check if files were created and exit 0 if so
+        - name: eigenlayer-setup
+          image: "{{ .Values.eigenlayer.image.repository }}:{{ .Values.eigenlayer.image.tag }}"
+          imagePullPolicy: {{ .Values.eigenlayer.image.pullPolicy }}
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set +e
+              # Run the eigenlayer setup (it may exit with non-zero even on success)
+              /main.sh || true
+
+              # Verify that required files were created
+              if [ -f /root/.nodes/avs_deploy.json ]; then
+                echo "avs_deploy.json created successfully"
+                # Check if all operator keys exist
+                {{- $nodeCount := int .Values.global.nodeCount }}
+                {{- range $i := until $nodeCount }}
+                {{- $nodeIndex := add $i 1 }}
+                if [ ! -f "/root/.nodes/operator_keys/testacc{{ $nodeIndex }}.private.bls.key.json" ]; then
+                  echo "Error: testacc{{ $nodeIndex }}.private.bls.key.json not found"
+                  exit 1
+                fi
+                {{- end }}
+                echo "All operator keys created successfully"
+                # Create marker file to signal that setup is fully complete
+                # Nodes and router wait for this file instead of just avs_deploy.json
+                touch /root/.nodes/.setup_complete
+                echo "Setup completion marker created"
+                echo "EigenLayer setup completed successfully"
+                exit 0
+              else
+                echo "Error: avs_deploy.json was not created"
+                exit 1
+              fi
+          env:
+            - name: RPC_URL
+              value: "http://{{ include "commonware-avs.ethereum.fullname" . }}:{{ .Values.ethereum.service.port }}"
+            - name: TEST_ACCOUNTS
+              value: {{ .Values.global.nodeCount | quote }}
+            - name: ENVIRONMENT
+              value: {{ .Values.global.environment | lower | quote }}
+            - name: DELEGATION_MANAGER_ADDRESS
+              value: {{ .Values.eigenlayer.contracts.delegationManager | quote }}
+            - name: STRATEGY_MANAGER_ADDRESS
+              value: {{ .Values.eigenlayer.contracts.strategyManager | quote }}
+            - name: LST_CONTRACT_ADDRESS
+              value: {{ .Values.eigenlayer.contracts.lstContract | quote }}
+            - name: LST_STRATEGY_ADDRESS
+              value: {{ .Values.eigenlayer.contracts.lstStrategy | quote }}
+            - name: ALLOCATION_MANAGER_ADDRESS
+              value: {{ .Values.eigenlayer.contracts.allocationManager | quote }}
+            - name: PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "commonware-avs.secret.fullname" . }}
+                  key: PRIVATE_KEY
+            - name: FUNDED_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "commonware-avs.secret.fullname" . }}
+                  key: FUNDED_KEY
+          volumeMounts:
+            - name: shared-data
+              mountPath: /root/.nodes
+            - name: config
+              mountPath: /bls-middleware/contracts/docker/eigenlayer/config.json
+              subPath: config.json
+          resources:
+            {{- toYaml .Values.eigenlayer.resources | nindent 12 }}
+
+      volumes:
+        - name: shared-data
+          persistentVolumeClaim:
+            claimName: {{ include "commonware-avs.shareddata.fullname" . }}
+        - name: config
+          configMap:
+            name: {{ include "commonware-avs.config.fullname" . }}
+{{- end }}

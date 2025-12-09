@@ -1,0 +1,69 @@
+{{- if and .Values.ethereum.enabled .Values.secrets.forkUrl }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "commonware-avs.ethereum.fullname" . }}
+  labels:
+    {{- include "commonware-avs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ethereum
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "commonware-avs.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ethereum
+  template:
+    metadata:
+      labels:
+        {{- include "commonware-avs.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: ethereum
+    spec:
+      # Prioritize keeping ethereum pod running - it holds critical state
+      priorityClassName: system-cluster-critical
+      containers:
+        - name: ethereum
+          image: "{{ .Values.ethereum.image.repository }}:{{ .Values.ethereum.image.tag }}"
+          imagePullPolicy: {{ .Values.ethereum.image.pullPolicy }}
+          env:
+            - name: FORK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "commonware-avs.secret.fullname" . }}
+                  key: FORK_URL
+          ports:
+            - name: rpc
+              containerPort: 8545
+              protocol: TCP
+          # Use TCP socket probe on the RPC port - more reliable than pgrep which may not exist in container
+          livenessProbe:
+            tcpSocket:
+              port: rpc
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 5
+          readinessProbe:
+            tcpSocket:
+              port: rpc
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.ethereum.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "commonware-avs.ethereum.fullname" . }}
+  labels:
+    {{- include "commonware-avs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ethereum
+spec:
+  type: {{ .Values.ethereum.service.type }}
+  ports:
+    - port: {{ .Values.ethereum.service.port }}
+      targetPort: rpc
+      protocol: TCP
+      name: rpc
+  selector:
+    {{- include "commonware-avs.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: ethereum
+{{- end }}

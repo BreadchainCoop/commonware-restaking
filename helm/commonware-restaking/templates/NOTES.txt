@@ -1,0 +1,61 @@
+Thank you for installing {{ .Chart.Name }}!
+
+Your release is named {{ .Release.Name }}.
+
+== DEPLOYMENT STATUS ==
+
+The Commonware AVS stack is being deployed with the following components:
+
+1. Ethereum (Anvil) - Local blockchain with forked Holesky state
+2. Signer (Cerberus) - BLS signature service
+3. Setup Job - EigenLayer contract deployment
+4. {{ .Values.global.nodeCount }} AVS Nodes - Operator nodes
+5. Router - Request routing and aggregation
+
+== SETUP JOB ==
+
+A setup job will run after installation to:
+- Deploy EigenLayer contracts
+- Create {{ .Values.global.nodeCount }} test operator accounts
+
+Monitor the setup job:
+  kubectl get jobs -l app.kubernetes.io/instance={{ .Release.Name }}
+  kubectl logs job/{{ include "commonware-avs.setup.fullname" . }}
+
+== ACCESSING SERVICES ==
+
+Ethereum RPC:
+  kubectl port-forward svc/{{ include "commonware-avs.ethereum.fullname" . }} 8545:{{ .Values.ethereum.service.port }}
+
+Router:
+  kubectl port-forward svc/{{ include "commonware-avs.router.fullname" . }} 3000:{{ .Values.router.service.port }}
+
+Router Ingress (if enabled):
+  kubectl port-forward svc/{{ include "commonware-avs.router.fullname" . }} 8080:{{ .Values.router.service.ingressPort }}
+
+{{- if .Values.ingress.enabled }}
+
+Ingress:
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- end }}
+
+== TROUBLESHOOTING ==
+
+Check pod status:
+  kubectl get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+
+View logs for a specific component:
+  kubectl logs -l app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=ethereum
+  kubectl logs -l app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=node
+  kubectl logs -l app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=router
+
+Check shared data volume:
+  kubectl get pvc {{ include "commonware-avs.shareddata.fullname" . }}
+
+== CONFIGURATION ==
+
+Environment: {{ .Values.global.environment }}
+Node Count: {{ .Values.global.nodeCount }}
+Usecase: {{ .Values.node.usecase }}
