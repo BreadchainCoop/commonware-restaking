@@ -233,25 +233,28 @@ jobs:
           
           # Verify increment
           if [ "$FINAL_COUNT" -gt "$INITIAL_COUNT" ]; then
-            echo "? Counter successfully incremented from $INITIAL_COUNT to $FINAL_COUNT"
+            echo "✓ Counter successfully incremented from $INITIAL_COUNT to $FINAL_COUNT"
             echo "LAST_COUNT=$FINAL_COUNT" >> $GITHUB_ENV
           else
-            echo "? Counter did not increment (still at $FINAL_COUNT)"
+            echo "✗ Counter did not increment (still at $FINAL_COUNT)"
             echo "=== Recent router logs ==="
             kubectl logs -l app.kubernetes.io/component=router --tail 50
             exit 1
           fi
 
       - name: Test with fast aggregation frequency
-        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
         run: |
           echo "Testing with fast aggregation frequency (0.5 seconds)..."
           
-          # Update router deployment with fast aggregation
-          kubectl set env deployment/commonware-avs-router AGGREGATION_FREQUENCY=0.5
+          # Find the actual router deployment name (includes chart name)
+          ROUTER_DEPLOYMENT=$(kubectl get deployments -o name | grep router | head -1 | sed 's|deployment.apps/||')
+          echo "Router deployment: $ROUTER_DEPLOYMENT"
+          
+          # Update router deployment with fast aggregation - DISABLE INGRESS to avoid timeout crashes
+          kubectl set env deployment/$ROUTER_DEPLOYMENT INGRESS=false AGGREGATION_FREQUENCY=0.5
           
           # Wait for rollout
-          kubectl rollout status deployment/commonware-avs-router --timeout=120s
+          kubectl rollout status deployment/$ROUTER_DEPLOYMENT --timeout=120s
           
           # Re-establish port forwarding
           pkill -f "port-forward.*8545" || true
@@ -264,7 +267,10 @@ jobs:
           
           kubectl port-forward service/$ETHEREUM_SERVICE 8545:8545 &
           kubectl port-forward service/$ROUTER_SERVICE 8080:8080 &
-          sleep 10
+          
+          # Wait for router to fully initialize P2P connections (takes ~15-20 seconds)
+          echo "Waiting for router to establish P2P connections..."
+          sleep 20
           
           # Get the starting counter value from previous step
           START_COUNT=${{ env.LAST_COUNT }}
@@ -292,16 +298,15 @@ jobs:
           # Verify fast aggregation worked (should have multiple increments)
           if [ "$FAST_COUNT" -gt "$START_COUNT" ]; then
             INCREMENTS=$((FAST_COUNT - START_COUNT))
-            echo "? Fast aggregation successful: $INCREMENTS increments in 1 minute"
+            echo "✓ Fast aggregation successful: $INCREMENTS increments in 1 minute"
             echo "LAST_COUNT=$FAST_COUNT" >> $GITHUB_ENV
           else
-            echo "? Fast aggregation failed (counter still at $FAST_COUNT)"
+            echo "✗ Fast aggregation failed (counter still at $FAST_COUNT)"
             kubectl logs -l app.kubernetes.io/component=router --tail 50
             exit 1
           fi
 
       - name: Test with ingress enabled
-        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
         run: |
           echo "Testing with ingress enabled..."
           
@@ -383,9 +388,9 @@ jobs:
           # Verify ingress increments worked
           if [ "$INGRESS_COUNT" -gt "$START_COUNT" ]; then
             INCREMENTS=$((INGRESS_COUNT - START_COUNT))
-            echo "? Ingress test successful: $INCREMENTS increments after ingress requests"
+            echo "✓ Ingress test successful: $INCREMENTS increments after ingress requests"
           else
-            echo "? Ingress test failed (counter still at $INGRESS_COUNT)"
+            echo "✗ Ingress test failed (counter still at $INGRESS_COUNT)"
             kubectl logs -l app.kubernetes.io/component=router --tail 50
             exit 1
           fi
@@ -445,4 +450,3 @@ jobs:
           
           # Delete the kind cluster
           kind delete cluster --name commonware-test || true
-
