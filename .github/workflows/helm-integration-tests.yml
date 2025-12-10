@@ -74,9 +74,9 @@ jobs:
           helm install commonware-avs ./helm/commonware-restaking \
             --set global.environment=LOCAL \
             --set global.nodeCount=3 \
-            --set secrets.forkUrl="$FORK_URL" \
-            --set secrets.privateKey="$PRIVATE_KEY" \
-            --set secrets.fundedKey="$FUNDED_KEY" \
+            --set secrets.forkUrl="${{ secrets.RPC_URL }}" \
+            --set secrets.privateKey="${{ secrets.PRIVATE_KEY }}" \
+            --set secrets.fundedKey="${{ secrets.FUNDED_KEY }}" \
             --set node.image.repository=commonware-avs-node \
             --set node.image.tag=local \
             --set node.image.pullPolicy=Never \
