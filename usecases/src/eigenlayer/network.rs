@@ -1,4 +1,4 @@
-use alloy_primitives::{Address, U256, address};
+use alloy_primitives::{Address, U256};
 use alloy_provider::Provider;
 use commonware_avs_core::bn254::{G1PublicKey, PublicKey};
 use eigen_client_avsregistry::reader::AvsRegistryChainReader;
@@ -75,23 +75,19 @@ pub struct QuorumInfo {
     pub operators: Vec<OperatorInfo>,
 }
 
-/// source: https://github.com/Layr-Labs/eigenlayer-middleware
-/// Contracts from middleware are supposed to be deployed for each AVS but
-/// OperatorStateRetriever looks generic for everyone.
-const OPERATOR_STATE_RETRIEVER_ADDRESS: Address =
-    address!("0xB4baAfee917fb4449f5ec64804217bccE9f46C67"); // TODO Add handling for different chains
-
 pub struct EigenStakingClient {
     http_endpoint: String,
     registry_coordinator_address: Address,
     registry_coordinator_deploy_block: u64,
     operator_info_service: Arc<OperatorInfoServiceInMemory>,
+    operator_state_retriever_address: Address,
 }
 
 #[derive(Debug)]
 pub struct AvsDeploymentConfig {
     pub registry_coordinator_address: Address,
     pub deploy_block: u64,
+    pub operator_state_retriever_address: Address,
 }
 
 impl EigenStakingClient {
@@ -109,6 +105,13 @@ impl EigenStakingClient {
             .as_str()
             .ok_or("Missing registryCoordinator address")?;
 
+        // Read operator state retriever address from blsSigCheck field
+        // This is the BLSSigCheckOperatorStateRetriever which implements
+        // both signature checking and operator state retrieval
+        let operator_state_retriever = addresses["blsSigCheck"]
+            .as_str()
+            .ok_or("Missing blsSigCheck address")?;
+
         let last_update = json["lastUpdate"]
             .as_object()
             .ok_or("Missing lastUpdate in deployment config")?;
@@ -118,13 +121,18 @@ impl EigenStakingClient {
             .ok_or("Missing block_number in lastUpdate")?
             .parse::<u64>()?;
 
-        let address = registry_coordinator
+        let registry_coordinator_address = registry_coordinator
             .parse::<Address>()
             .map_err(|_| "Failed to parse registry coordinator address")?;
 
+        let operator_state_retriever_address = operator_state_retriever
+            .parse::<Address>()
+            .map_err(|_| "Failed to parse operator state retriever address")?;
+
         Ok(AvsDeploymentConfig {
-            registry_coordinator_address: address,
+            registry_coordinator_address,
             deploy_block,
+            operator_state_retriever_address,
         })
     }
 
@@ -136,7 +144,7 @@ impl EigenStakingClient {
         let config = Self::read_avs_deployment_config(&avs_deployment_path)?;
         let avs_registry_reader = AvsRegistryChainReader::new(
             config.registry_coordinator_address,
-            OPERATOR_STATE_RETRIEVER_ADDRESS,
+            config.operator_state_retriever_address,
             http_endpoint.clone(),
         )
         .await?;
@@ -150,6 +158,7 @@ impl EigenStakingClient {
             registry_coordinator_address: config.registry_coordinator_address,
             registry_coordinator_deploy_block: config.deploy_block,
             operator_info_service: Arc::new(operator_info_service),
+            operator_state_retriever_address: config.operator_state_retriever_address,
         })
     }
 
@@ -164,9 +173,9 @@ impl EigenStakingClient {
             )
             .await?;
 
-        // Query operator states
+        // Query operator states using the dynamic address from config
         let operator_state_retriever =
-            OperatorStateRetriever::new(OPERATOR_STATE_RETRIEVER_ADDRESS, provider);
+            OperatorStateRetriever::new(self.operator_state_retriever_address, provider);
         let quorum_numbers: Vec<u8> = vec![0];
         let operators_state = operator_state_retriever
             .getOperatorState_0(
