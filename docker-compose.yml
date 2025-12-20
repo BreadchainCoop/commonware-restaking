@@ -9,7 +9,8 @@ services:
 
   eigenlayer:
     platform: linux/amd64
-    image: ghcr.io/breadchaincoop/eigenlayer:dev
+    # Using Sepolia-compatible image from PR #24
+    image: ghcr.io/breadchaincoop/eigenlayer:pr-RonTuretzky-sepolia-support-9fa6816
     depends_on:
       ethereum:
         condition: service_started
