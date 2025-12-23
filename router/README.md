@@ -34,7 +34,7 @@ Required environment variables:
 - `WS_RPC`: WebSocket RPC endpoint
 - `AVS_DEPLOYMENT_PATH`: Path to deployment JSON file
 - `CONTRIBUTOR_X_KEYFILE`: BLS key files for contributors
-- `PRIVATE_KEY`: Private key for transactions. **NOTE:** Address must be funded on Holesky testnet
+- `PRIVATE_KEY`: Private key for transactions. **NOTE:** Address must be funded on Sepolia testnet
 
 Optional environment variables:
 - `AGGREGATION_FREQUENCY`: Signature aggregation frequency in seconds, supports fractional values (default: 30)

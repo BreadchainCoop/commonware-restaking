@@ -36,14 +36,14 @@ jobs:
           sed -i '/^# WS_RPC=ws:\/\/localhost:8545/s/^# //' .env
           sed -i '/^# RPC_URL=http:\/\/ethereum:8545/s/^# //' .env
 
-          # Set FORK_URL for local forking from repository secret or default to Holesky
+          # Set FORK_URL for local forking from repository secret or default to Sepolia
           if [ -n "${{ secrets.RPC_URL }}" ]; then
             sed -i "s|^# FORK_URL=.*|FORK_URL=${{ secrets.RPC_URL }}|" .env
           else
-            sed -i 's|^# FORK_URL=.*|FORK_URL=https://ethereum-holesky.publicnode.com|' .env
+            sed -i 's|^# FORK_URL=.*|FORK_URL=https://ethereum-sepolia-rpc.publicnode.com|' .env
           fi
 
-          # Uncomment Holesky testnet contract addresses (needed for LOCAL mode with fork)
+          # Uncomment Sepolia testnet contract addresses (needed for LOCAL mode with fork)
           sed -i 's/^#DELEGATION_MANAGER_ADDRESS=/DELEGATION_MANAGER_ADDRESS=/' .env
           sed -i 's/^#STRATEGY_MANAGER_ADDRESS=/STRATEGY_MANAGER_ADDRESS=/' .env
           sed -i 's/^#LST_CONTRACT_ADDRESS=/LST_CONTRACT_ADDRESS=/' .env

@@ -55,7 +55,7 @@ DEFAULT_PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf
 sed -i '' "s|^PRIVATE_KEY=.*|PRIVATE_KEY=$DEFAULT_PRIVATE_KEY|" .env
 sed -i '' "s|^FUNDED_KEY=.*|FUNDED_KEY=$DEFAULT_PRIVATE_KEY|" .env
 
-# Set Holesky contract addresses for LOCAL mode
+# Set Sepolia contract addresses for LOCAL mode
 sed -i '' 's|^#DELEGATION_MANAGER_ADDRESS=|DELEGATION_MANAGER_ADDRESS=|' .env
 sed -i '' 's|^#STRATEGY_MANAGER_ADDRESS=|STRATEGY_MANAGER_ADDRESS=|' .env
 sed -i '' 's|^#LST_CONTRACT_ADDRESS=|LST_CONTRACT_ADDRESS=|' .env
