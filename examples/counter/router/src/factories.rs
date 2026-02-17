@@ -8,10 +8,10 @@ use alloy_provider::ProviderBuilder;
 use alloy_signer_local::PrivateKeySigner;
 use anyhow::Result;
 use commonware_avs_bindings::WalletProvider;
-use commonware_avs_bindings::counter::Counter;
 use commonware_avs_router::creator::{CreatorConfig, SimpleTaskQueue};
 use commonware_avs_router::ingress::http_server::start_http_server;
-use commonware_avs_usecases::AvsDeployment;
+use counter_bindings::Counter;
+use counter_common::config::CounterDeployment;
 use std::{env, str::FromStr};
 
 pub async fn create_creator() -> Result<CounterCreatorType> {
@@ -25,8 +25,8 @@ pub async fn create_creator() -> Result<CounterCreatorType> {
         .await
         .map_err(|e| anyhow::anyhow!("Failed to connect provider: {}", e))?;
 
-    let deployment =
-        AvsDeployment::load().map_err(|e| anyhow::anyhow!("Failed to load deployment: {}", e))?;
+    let deployment = CounterDeployment::load()
+        .map_err(|e| anyhow::anyhow!("Failed to load deployment: {}", e))?;
     let counter_address = deployment
         .counter_address()
         .map_err(|e| anyhow::anyhow!("Failed to get counter address: {}", e))?;
@@ -44,8 +44,8 @@ pub async fn create_listening_creator_with_server(addr: String) -> Result<Counte
         .wallet(signer)
         .connect(&http_rpc)
         .await?;
-    let deployment =
-        AvsDeployment::load().map_err(|e| anyhow::anyhow!("Failed to load deployment: {}", e))?;
+    let deployment = CounterDeployment::load()
+        .map_err(|e| anyhow::anyhow!("Failed to load deployment: {}", e))?;
     let counter_address = deployment
         .counter_address()
         .map_err(|e| anyhow::anyhow!("Failed to get counter address: {}", e))?;

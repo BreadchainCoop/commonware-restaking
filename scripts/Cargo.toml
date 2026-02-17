@@ -13,5 +13,5 @@ tokio = { workspace = true }
 url = { workspace = true }
 dotenv = { workspace = true }
 serde = { workspace = true }
-commonware-avs-router = { path = "../router" }
-commonware-avs-usecases = { path = "../usecases" }
+counter-bindings = { path = "../examples/counter/bindings" }
+commonware-avs-eigenlayer = { path = "../eigenlayer" }

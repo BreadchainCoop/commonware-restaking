@@ -1,7 +1,8 @@
 use alloy::{network::Ethereum, primitives::U256, sol_types::SolValue};
 use anyhow::Result;
 
-use commonware_avs_bindings::{WalletProvider as AlloyProvider, counter::Counter};
+use commonware_avs_bindings::WalletProvider as AlloyProvider;
+use counter_bindings::Counter;
 
 pub struct CounterProvider {
     counter: Counter::CounterInstance<AlloyProvider, Ethereum>,

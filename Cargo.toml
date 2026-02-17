@@ -2,12 +2,14 @@
 members = [
     "bindings",
     "core",
+    "eigenlayer",
     "node",
     "router",
     "scripts",
-    "usecases",
-    "usecases/counter/node",
-    "usecases/counter/router",
+    "examples/counter/bindings",
+    "examples/counter/common",
+    "examples/counter/node",
+    "examples/counter/router",
 ]
 resolver = "2"
 

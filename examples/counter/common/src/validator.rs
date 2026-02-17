@@ -7,11 +7,12 @@ use commonware_cryptography::sha256::Digest;
 use commonware_cryptography::{Hasher, Sha256};
 use std::{env, io::Cursor};
 
-use crate::AvsDeployment;
+use crate::config::CounterDeployment;
 use crate::types::CounterTaskData;
-use commonware_avs_bindings::{ReadOnlyProvider, counter::Counter};
+use commonware_avs_bindings::ReadOnlyProvider;
 use commonware_avs_core::validator::ValidatorTrait;
 use commonware_avs_core::wire;
+use counter_bindings::Counter;
 
 pub struct CounterValidator {
     counter: Counter::CounterInstance<ReadOnlyProvider, alloy::network::Ethereum>,
@@ -22,7 +23,7 @@ impl CounterValidator {
         let http_rpc = env::var("HTTP_RPC").expect("HTTP_RPC must be set");
         let provider = ProviderBuilder::new().connect_http(url::Url::parse(&http_rpc).unwrap());
 
-        let deployment = AvsDeployment::load()
+        let deployment = CounterDeployment::load()
             .map_err(|e| anyhow::anyhow!("Failed to load AVS deployment: {}", e))?;
         let counter_address = deployment
             .counter_address()

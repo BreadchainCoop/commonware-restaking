@@ -6,7 +6,7 @@ use tracing::error;
 use crate::provider::CounterProvider;
 use commonware_avs_router::creator::{Creator, CreatorConfig, SimpleTaskQueue, TaskQueue};
 use commonware_avs_router::ingress::types::TaskRequest;
-use commonware_avs_usecases::types::CounterTaskData;
+use counter_common::types::CounterTaskData;
 
 #[allow(unused_imports)]
 use serde::{Deserialize, Serialize};

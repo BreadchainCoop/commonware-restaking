@@ -66,12 +66,12 @@ jobs:
               image: commonware-avs-router:ci-test
               build:
                 context: .
-                dockerfile: usecases/counter/router/Dockerfile
+                dockerfile: examples/counter/router/Dockerfile
           EOF
 
       - name: Build router image for CI testing
         run: |
-          docker build -f ./usecases/counter/router/Dockerfile -t commonware-avs-router:ci-test .
+          docker build -f ./examples/counter/router/Dockerfile -t commonware-avs-router:ci-test .
 
       - name: Pull required images
         run: |

@@ -1,6 +1,6 @@
 use alloy::providers::ProviderBuilder;
-use commonware_avs_router::bindings::counter::Counter;
-use commonware_avs_usecases::AvsDeployment;
+use commonware_avs_eigenlayer::AvsDeployment;
+use counter_bindings::Counter;
 use std::{env, time::Duration};
 use tokio::time::sleep;
 
@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         AvsDeployment::load().map_err(|e| format!("Failed to load deployment: {}", e))?
     };
     let counter_address = deployment
-        .counter_address()
+        .custom_address("counter")
         .map_err(|e| format!("Failed to get counter address: {}", e))?;
     let http_rpc = env::var("HTTP_RPC").unwrap_or_else(|_| DEFAULT_HTTP_RPC.to_string());
 
