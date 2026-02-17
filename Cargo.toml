@@ -3,30 +3,29 @@ members = [
     "bindings",
     "core",
     "eigenlayer",
-    "node",
-    "router",
-    "scripts",
     "examples/counter/bindings",
     "examples/counter/common",
     "examples/counter/node",
     "examples/counter/router",
+    "node",
+    "router",
+    "scripts",
 ]
+default-members = ["bindings", "core", "eigenlayer", "node", "router"]
 resolver = "2"
 
 [workspace.package]
+version = "0.1.0"
 edition = "2024"
 
 [workspace.dependencies]
-# Core dependencies shared across packages
 alloy = "1.0"
 alloy-network = "1.0"
 alloy-primitives = "1.0"
-# Alloy ecosystem
 alloy-provider = "1.0"
 alloy-signer = "1.0"
 alloy-signer-local = "1.0"
 anyhow = "1.0"
-# Arkworks and bn254
 ark-bn254 = "0.5.0"
 ark-ec = "0.5.0"
 ark-ff = "0.5.0"
@@ -35,7 +34,6 @@ async-trait = "0.1"
 axum = "0.7"
 bytes = "1.10.1"
 clap = "4.5.37"
-# Commonware crates
 commonware-codec = "0.0.63"
 commonware-cryptography = "0.0.63"
 commonware-macros = "0.0.63"

@@ -6,8 +6,8 @@ Monorepo for the Commonware AVS reference implementation on EigenLayer. It conta
 - [`bindings`](./bindings): Standalone crate for on-chain contract bindings
 - [`router`](./router): Generic service library for running an aggregation/orchestrator service
 - [`node`](./node): Generic service library for running a contributor/operator node
-- [`usecases`](./usecases): Examples and reference AVS usecases demonstrating integration with the core, router, and node libraries
-- [`usecases/counter`](./usecases/counter): Implementation of the example "counter" AVS usecase
+- [`eigenlayer`](./eigenlayer): EigenLayer integration utilities (registry, operator state, signing)
+- [`examples/counter`](./examples/counter): Implementation of the example "counter" AVS usecase
 - [`config`](./config): Configuration files for local network, contract deployments, and test keys
 - [`scripts`](./scripts): Helper scripts for end-to-end validation and local integration testing
 - `docker-compose.yml`: One-command stack runner (Ethereum, EigenLayer, router, operator nodes, signer)
@@ -16,12 +16,9 @@ Monorepo for the Commonware AVS reference implementation on EigenLayer. It conta
 
 [Counter](https://github.com/BreadchainCoop/commonware-avs-counter) demonstrates a simple end‑to‑end AVS flow:
 
-- BLS quorum signing (n‑of‑m) by [`node`](./usecases/counter/node) operators
-- Aggregation and on‑chain execution by [`router`](./usercases/counter/router) (increments a counter contract)
+- BLS quorum signing (n‑of‑m) by [`node`](./examples/counter/node) operators
+- Aggregation and on‑chain execution by [`router`](./examples/counter/router) (increments a counter contract)
 - Message validation and payload hashing via [`core`](./core) wire + validator utilities
-
-> [!NOTE]
-> Usecase implementations (like `counter`) will be moved to dedicated repositories (e.g., `commonware-avs-counter`). This repository will converge on providing the core AVS libraries (shared protocol types, bindings, wire/validators) and base services, and is intended to serve primarily as a reusable library layer for downstream usecases.
 
 ## Quick Start
 

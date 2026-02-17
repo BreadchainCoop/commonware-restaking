@@ -28,7 +28,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         deployment
     } else {
         // If load() doesn't work, we might need to set the environment variable
-        std::env::set_var("AVS_DEPLOYMENT_PATH", &deployment_path);
+        // SAFETY: This runs single-threaded before any concurrent work begins.
+        unsafe { std::env::set_var("AVS_DEPLOYMENT_PATH", &deployment_path) };
         AvsDeployment::load().map_err(|e| format!("Failed to load deployment: {}", e))?
     };
     let counter_address = deployment

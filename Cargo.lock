@@ -1266,19 +1266,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
-name = "avs-scripts"
-version = "0.1.0"
-dependencies = [
- "alloy",
- "commonware-avs-eigenlayer",
- "counter-bindings",
- "dotenv",
- "serde",
- "tokio",
- "url",
-]
-
-[[package]]
 name = "aws-config"
 version = "1.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2139,6 +2126,19 @@ dependencies = [
  "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber 0.3.20",
+ "url",
+]
+
+[[package]]
+name = "commonware-avs-scripts"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "commonware-avs-eigenlayer",
+ "counter-bindings",
+ "dotenv",
+ "serde",
+ "tokio",
  "url",
 ]
 

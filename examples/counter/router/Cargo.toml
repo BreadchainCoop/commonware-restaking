@@ -1,37 +1,38 @@
 [package]
 name = "counter-router"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+publish = false
 
 [[bin]]
 name = "counter-router"
 path = "src/app.rs"
 
 [dependencies]
-counter-common = { path = "../common" }
-counter-bindings = { path = "../bindings" }
-commonware-avs-eigenlayer = { path = "../../../eigenlayer" }
-commonware-avs-router = { path = "../../../router" }
+alloy = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-provider = { workspace = true }
+alloy-signer-local = { workspace = true }
+anyhow = { workspace = true }
+ark-bn254 = { workspace = true }
+async-trait = { workspace = true }
+clap = { workspace = true }
 commonware-avs-bindings = { path = "../../../bindings" }
 commonware-avs-core = { path = "../../../core" }
+commonware-avs-eigenlayer = { path = "../../../eigenlayer" }
+commonware-avs-router = { path = "../../../router" }
 commonware-cryptography = { workspace = true }
-commonware-runtime = { workspace = true }
 commonware-p2p = { workspace = true }
+commonware-runtime = { workspace = true }
 commonware-utils = { workspace = true }
-clap = { workspace = true }
-ark-bn254 = { workspace = true }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
+counter-bindings = { path = "../bindings" }
+counter-common = { path = "../common" }
 dotenv = { workspace = true }
 eigen-logging = { workspace = true }
 governor = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-url = { workspace = true }
-alloy-provider = { workspace = true }
-alloy-signer-local = { workspace = true }
-anyhow = { workspace = true }
-async-trait = { workspace = true }
 tokio = { workspace = true }
-alloy = { workspace = true }
-alloy-primitives = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+url = { workspace = true }
