@@ -8,13 +8,13 @@ A node enables operators to participate in BLS signature aggregation for AVS pro
 
 ## Orchestrator Configuration
 
-The orchestrator configuration file (`orchestrator.json`) specifies the connection details for the orchestrator node. The file includes:
+The orchestrator configuration file (`orchestrator_public.json`) specifies the connection details for the orchestrator node. The file includes:
 
 - `g2_x1`, `g2_x2`, `g2_y1`, `g2_y2`: Public key coordinates for the orchestrator
 - `address`: IP address or hostname of the orchestrator (optional, defaults to "localhost" for backwards compatibility)
 - `port`: Port number for the orchestrator
 
-Example `orchestrator.json`:
+Example `orchestrator_public.json`:
 ```json
 {
     "g2_x1": "20265730220917057623326116620721648047640065506233168445998945605458084341755",
@@ -31,18 +31,18 @@ For backwards compatibility, if the `address` field is omitted, it will default 
 ## Running Contributors
 ```bash
 source .env
-cargo run --release -- --key-file $CONTRIBUTOR_1_KEYFILE --port 3001 --orchestrator orchestrator.json 
+cargo run --release -- --key-file $CONTRIBUTOR_1_KEYFILE --port 3001 --orchestrator orchestrator_public.json 
 
 source .env
-cargo run --release -- --key-file $CONTRIBUTOR_2_KEYFILE --port 3002 --orchestrator orchestrator.json 
+cargo run --release -- --key-file $CONTRIBUTOR_2_KEYFILE --port 3002 --orchestrator orchestrator_public.json 
 
 source .env
-cargo run --release -- --key-file $CONTRIBUTOR_3_KEYFILE --port 3003 --orchestrator orchestrator.json 
+cargo run --release -- --key-file $CONTRIBUTOR_3_KEYFILE --port 3003 --orchestrator orchestrator_public.json 
 ```
 If you wish to run an aggregating contributor, add the option `--aggregation` argument, for example, if you want the first contributor to be aggregating,
 ```bash
 source .env
-cargo run --release -- --key-file $CONTRIBUTOR_1_KEYFILE --port 3001 --orchestrator orchestrator.json --aggregation
+cargo run --release -- --key-file $CONTRIBUTOR_1_KEYFILE --port 3001 --orchestrator orchestrator_public.json --aggregation
 ```
 
 You may also use the short command `-a` in place of `--aggregation`.

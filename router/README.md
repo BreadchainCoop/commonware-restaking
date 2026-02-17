@@ -73,7 +73,7 @@ services:
       - CONTRIBUTOR_3_KEYFILE=/app/keys/contributor3.bls.key.json
     ports:
       - "3000:3000"
-    command: ["--key-file", "/app/config/orchestrator.json", "--port", "3000"]
+    command: ["--key-file", "/app/config/orchestrator_secret.json", "--port", "3000"]
 ```
 
 ## Ingress Mode

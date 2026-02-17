@@ -54,7 +54,7 @@ services:
     volumes:
       - ./config/.nodes/operator_keys/testacc1.private.bls.key.json:/app/key.json:ro
       - ./config/.nodes:/app/.nodes:ro
-      - ./config/public_orchestrator.json:/app/public_orchestrator.json:ro
+      - ./config/orchestrator_public.json:/app/orchestrator_public.json:ro
     command:
       [
         "--key-file",
@@ -62,7 +62,7 @@ services:
         "--port",
         "3001",
         "--orchestrator",
-        "/app/public_orchestrator.json",
+        "/app/orchestrator_public.json",
       ]
     ports:
       - "4001:3001"
@@ -88,7 +88,7 @@ services:
     volumes:
       - ./config/.nodes/operator_keys/testacc2.private.bls.key.json:/app/key.json:ro
       - ./config/.nodes:/app/.nodes:ro
-      - ./config/public_orchestrator.json:/app/public_orchestrator.json:ro
+      - ./config/orchestrator_public.json:/app/orchestrator_public.json:ro
     command:
       [
         "--key-file",
@@ -96,7 +96,7 @@ services:
         "--port",
         "3002",
         "--orchestrator",
-        "/app/public_orchestrator.json",
+        "/app/orchestrator_public.json",
       ]
     ports:
       - "4002:3002"
@@ -122,7 +122,7 @@ services:
     volumes:
       - ./config/.nodes/operator_keys/testacc3.private.bls.key.json:/app/key.json:ro
       - ./config/.nodes:/app/.nodes:ro
-      - ./config/public_orchestrator.json:/app/public_orchestrator.json:ro
+      - ./config/orchestrator_public.json:/app/orchestrator_public.json:ro
     command:
       [
         "--key-file",
@@ -130,7 +130,7 @@ services:
         "--port",
         "3003",
         "--orchestrator",
-        "/app/public_orchestrator.json",
+        "/app/orchestrator_public.json",
       ]
     ports:
       - "4003:3003"
@@ -160,8 +160,8 @@ services:
       - AVS_DEPLOYMENT_PATH=/app/.nodes/avs_deploy.json
     volumes:
       - ./config/.nodes:/app/.nodes:ro
-      - ./config/router_orchestrator.json:/app/router_orchestrator.json:ro
-    command: ["--key-file", "/app/router_orchestrator.json", "--port", "3000"]
+      - ./config/orchestrator_secret.json:/app/orchestrator_secret.json:ro
+    command: ["--key-file", "/app/orchestrator_secret.json", "--port", "3000"]
     ports:
       - "4000:3000"
       - "8080:8080"

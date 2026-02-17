@@ -47,13 +47,13 @@ jobs:
           fi
 
           # Uncomment Sepolia testnet contract addresses (needed for LOCAL mode with fork)
-          sed -i 's/^#DELEGATION_MANAGER_ADDRESS=/DELEGATION_MANAGER_ADDRESS=/' .env
-          sed -i 's/^#STRATEGY_MANAGER_ADDRESS=/STRATEGY_MANAGER_ADDRESS=/' .env
-          sed -i 's/^#LST_CONTRACT_ADDRESS=/LST_CONTRACT_ADDRESS=/' .env
-          sed -i 's/^#LST_STRATEGY_ADDRESS=/LST_STRATEGY_ADDRESS=/' .env
-          sed -i 's/^#BLS_SIGNATURE_CHECKER_ADDRESS=/BLS_SIGNATURE_CHECKER_ADDRESS=/' .env
-          sed -i 's/^#OPERATOR_STATE_RETRIEVER_ADDRESS=/OPERATOR_STATE_RETRIEVER_ADDRESS=/' .env
-          sed -i 's/^#ALLOCATION_MANAGER_ADDRESS=/ALLOCATION_MANAGER_ADDRESS=/' .env
+          sed -i 's/^# DELEGATION_MANAGER_ADDRESS=/DELEGATION_MANAGER_ADDRESS=/' .env
+          sed -i 's/^# STRATEGY_MANAGER_ADDRESS=/STRATEGY_MANAGER_ADDRESS=/' .env
+          sed -i 's/^# LST_CONTRACT_ADDRESS=/LST_CONTRACT_ADDRESS=/' .env
+          sed -i 's/^# LST_STRATEGY_ADDRESS=/LST_STRATEGY_ADDRESS=/' .env
+          sed -i 's/^# BLS_SIGNATURE_CHECKER_ADDRESS=/BLS_SIGNATURE_CHECKER_ADDRESS=/' .env
+          sed -i 's/^# OPERATOR_STATE_RETRIEVER_ADDRESS=/OPERATOR_STATE_RETRIEVER_ADDRESS=/' .env
+          sed -i 's/^# ALLOCATION_MANAGER_ADDRESS=/ALLOCATION_MANAGER_ADDRESS=/' .env
 
           # Use default Anvil private key for testing
           DEFAULT_ANVIL_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
@@ -133,7 +133,7 @@ jobs:
 
           echo "Starting router in background..."
           # Source environment and run router in background
-          nohup cargo run -p counter-router --release -- --key-file config/router_orchestrator.json --port 3000 > router.log 2>&1 &
+          nohup cargo run -p counter-router --release -- --key-file config/orchestrator_secret.json --port 3000 > router.log 2>&1 &
           echo $! > router.pid
 
           # Wait for router to start
