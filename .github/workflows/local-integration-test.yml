@@ -1,11 +1,6 @@
 name: Local Integration Test
 
 on:
-  push:
-    branches:
-      - main
-      - dev
-      - staging
   pull_request:
     branches:
       - main
