@@ -33,4 +33,11 @@ pub trait BlsSignatureVerificationHandler: Send + Sync {
         non_signer_data: getNonSignerStakesAndSignatureReturn,
         task_data: Option<&Self::TaskData>,
     ) -> Result<ExecutionResult>;
+
+    /// Returns a key identifying which read-side config to use for this task.
+    /// The key must match one registered via `BlsEigenlayerExecutor::add_read_side()`.
+    /// Returns `None` to use the executor's default read-side config.
+    fn resolve_read_side(&self, _task_data: Option<&Self::TaskData>) -> Option<String> {
+        None
+    }
 }

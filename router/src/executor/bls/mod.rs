@@ -3,7 +3,7 @@ pub mod traits;
 pub mod types;
 pub mod utils;
 
-pub use executor::BlsEigenlayerExecutor;
+pub use executor::{BlsEigenlayerExecutor, ReadSideConfig};
 pub use traits::BlsSignatureVerificationHandler;
 pub use utils::convert_non_signer_data;
 

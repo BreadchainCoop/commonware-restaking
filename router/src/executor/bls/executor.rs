@@ -23,6 +23,17 @@ use commonware_avs_bindings::{
     },
 };
 
+/// Configuration for read-side blockchain operations on a specific chain.
+/// Contains the provider and EigenLayer contract instances needed to look up
+/// operator state and block numbers.
+pub struct ReadSideConfig {
+    pub provider: ReadOnlyProvider,
+    pub bls_apk_registry: BLSApkRegistryInstance<ReadOnlyProvider, Ethereum>,
+    pub bls_operator_state_retriever:
+        BLSSigCheckOperatorStateRetrieverInstance<ReadOnlyProvider, Ethereum>,
+    pub registry_coordinator_address: Address,
+}
+
 pub struct BlsEigenlayerExecutor<H> {
     view_only_provider: ReadOnlyProvider,
     bls_apk_registry: BLSApkRegistryInstance<ReadOnlyProvider, Ethereum>,
@@ -31,6 +42,7 @@ pub struct BlsEigenlayerExecutor<H> {
     registry_coordinator_address: Address,
     contract_handler: H,
     g1_hash_map: HashMap<PublicKey, Address>,
+    alternate_read_sides: HashMap<String, ReadSideConfig>,
 }
 
 impl<H> BlsEigenlayerExecutor<H> {
@@ -51,41 +63,51 @@ impl<H> BlsEigenlayerExecutor<H> {
             registry_coordinator_address,
             contract_handler,
             g1_hash_map: HashMap::new(),
+            alternate_read_sides: HashMap::new(),
         }
     }
 
-    async fn ensure_g1_hash_map_entry(
-        &mut self,
-        contributor: &PublicKey,
-        g1_pubkey: &G1PublicKey,
-    ) -> Result<Address> {
-        if let Some(address) = self.g1_hash_map.get(contributor) {
-            return Ok(*address);
-        }
-
-        let g1_point = G1Point {
-            X: U256::from_str(&g1_pubkey.get_x())
-                .map_err(|e| anyhow::anyhow!("Failed to parse X coordinate: {}", e))?,
-            Y: U256::from_str(&g1_pubkey.get_y())
-                .map_err(|e| anyhow::anyhow!("Failed to parse Y coordinate: {}", e))?,
-        };
-        let hex_string = format!(
-            "0x{}",
-            hex(alloy_primitives::keccak256(g1_point.abi_encode()).as_ref())
-        );
-        let address = self
-            .bls_apk_registry
-            .pubkeyHashToOperator(
-                FixedBytes::<32>::from_str(&hex_string)
-                    .map_err(|e| anyhow::anyhow!("Failed to parse hex string: {}", e))?,
-            )
-            .call()
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to get operator from pubkey hash: {}", e))?;
-
-        self.g1_hash_map.insert(contributor.clone(), address);
-        Ok(address)
+    /// Register an alternate read-side configuration for a specific chain.
+    /// The key is used by `BlsSignatureVerificationHandler::resolve_read_side()`
+    /// to select which config to use per-task.
+    pub fn add_read_side(mut self, key: String, config: ReadSideConfig) -> Self {
+        self.alternate_read_sides.insert(key, config);
+        self
     }
+
+}
+
+async fn lookup_operator_address(
+    g1_hash_map: &mut HashMap<PublicKey, Address>,
+    contributor: &PublicKey,
+    g1_pubkey: &G1PublicKey,
+    registry: &BLSApkRegistryInstance<ReadOnlyProvider, Ethereum>,
+) -> Result<Address> {
+    if let Some(address) = g1_hash_map.get(contributor) {
+        return Ok(*address);
+    }
+
+    let g1_point = G1Point {
+        X: U256::from_str(&g1_pubkey.get_x())
+            .map_err(|e| anyhow::anyhow!("Failed to parse X coordinate: {}", e))?,
+        Y: U256::from_str(&g1_pubkey.get_y())
+            .map_err(|e| anyhow::anyhow!("Failed to parse Y coordinate: {}", e))?,
+    };
+    let hex_string = format!(
+        "0x{}",
+        hex(alloy_primitives::keccak256(g1_point.abi_encode()).as_ref())
+    );
+    let address = registry
+        .pubkeyHashToOperator(
+            FixedBytes::<32>::from_str(&hex_string)
+                .map_err(|e| anyhow::anyhow!("Failed to parse hex string: {}", e))?,
+        )
+        .call()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to get operator from pubkey hash: {}", e))?;
+
+    g1_hash_map.insert(contributor.clone(), address);
+    Ok(address)
 }
 
 #[async_trait]
@@ -183,17 +205,36 @@ impl<H: BlsSignatureVerificationHandler> BlsExecutorTrait<H::TaskData>
 
         let msg_hash = FixedBytes::<32>::from_slice(payload_hash);
 
+        // Resolve which read-side config to use for this task
+        let read_side_key = self.contract_handler.resolve_read_side(task_data);
+        let alt_config = read_side_key
+            .as_ref()
+            .and_then(|key| self.alternate_read_sides.get(key));
+
+        // Select provider, registry, retriever, and coordinator from alternate or default
+        let provider = alt_config
+            .map(|c| &c.provider)
+            .unwrap_or(&self.view_only_provider);
+        let registry = alt_config
+            .map(|c| &c.bls_apk_registry)
+            .unwrap_or(&self.bls_apk_registry);
+        let retriever = alt_config
+            .map(|c| &c.bls_operator_state_retriever)
+            .unwrap_or(&self.bls_operator_state_retriever);
+        let coordinator_address = alt_config
+            .map(|c| c.registry_coordinator_address)
+            .unwrap_or(self.registry_coordinator_address);
+
         // Get or populate operator addresses
         let mut operators = Vec::new();
         for (contributor, g1_pubkey) in participating.iter().zip(participating_g1.iter()) {
-            let address = self
-                .ensure_g1_hash_map_entry(contributor, g1_pubkey)
-                .await?;
+            let address =
+                lookup_operator_address(&mut self.g1_hash_map, contributor, g1_pubkey, registry)
+                    .await?;
             operators.push(address);
         }
 
-        let current_block_number = self
-            .view_only_provider
+        let current_block_number = provider
             .get_block_number()
             .await
             .map_err(|e| anyhow::anyhow!("Failed to get block number: {}", e))?;
@@ -201,10 +242,9 @@ impl<H: BlsSignatureVerificationHandler> BlsExecutorTrait<H::TaskData>
             .map_err(|e| anyhow::anyhow!("Failed to parse quorum numbers: {}", e))?;
 
         // Call the BLS operator state retriever to get the non-signer data
-        let non_signer_result = self
-            .bls_operator_state_retriever
+        let non_signer_result = retriever
             .getNonSignerStakesAndSignature(
-                self.registry_coordinator_address,
+                coordinator_address,
                 quorum_numbers.clone(),
                 sigma_struct,
                 operators,
