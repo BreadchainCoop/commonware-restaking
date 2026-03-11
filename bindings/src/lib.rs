@@ -12,7 +12,6 @@
 
 pub mod blsapkregistry;
 pub mod blssigcheckoperatorstateretriever;
-pub mod counter;
 
 use alloy::{network::Ethereum, network::EthereumWallet, providers::fillers::FillProvider};
 use alloy_provider::{

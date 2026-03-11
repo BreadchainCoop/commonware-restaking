@@ -1266,19 +1266,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
-name = "avs-scripts"
-version = "0.1.0"
-dependencies = [
- "alloy",
- "commonware-avs-router",
- "commonware-avs-usecases",
- "dotenv",
- "serde",
- "tokio",
- "url",
-]
-
-[[package]]
 name = "aws-config"
 version = "1.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2032,6 +2019,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "commonware-avs-eigenlayer"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "alloy-provider",
+ "commonware-avs-core",
+ "eigen-client-avsregistry",
+ "eigen-common",
+ "eigen-crypto-bls",
+ "eigen-services-operatorsinfo",
+ "eigen-utils",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "commonware-avs-node"
 version = "0.1.0"
 dependencies = [
@@ -2074,30 +2077,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber 0.3.20",
  "url",
-]
-
-[[package]]
-name = "commonware-avs-node-app"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "ark-bn254",
- "async-trait",
- "clap",
- "commonware-avs-core",
- "commonware-avs-node",
- "commonware-avs-router",
- "commonware-avs-usecases",
- "commonware-cryptography",
- "commonware-p2p",
- "commonware-runtime",
- "commonware-utils",
- "dotenv",
- "eigen-logging",
- "governor",
- "serde",
- "serde_json",
- "tracing",
 ]
 
 [[package]]
@@ -2151,72 +2130,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "commonware-avs-router-app"
+name = "commonware-avs-scripts"
 version = "0.1.0"
 dependencies = [
  "alloy",
- "alloy-primitives",
- "alloy-provider",
- "alloy-signer-local",
- "anyhow",
- "ark-bn254",
- "async-trait",
- "clap",
- "commonware-avs-bindings",
- "commonware-avs-core",
- "commonware-avs-router",
- "commonware-avs-usecases",
- "commonware-cryptography",
- "commonware-p2p",
- "commonware-runtime",
- "commonware-utils",
+ "commonware-avs-eigenlayer",
+ "counter-bindings",
  "dotenv",
- "eigen-logging",
- "governor",
  "serde",
- "serde_json",
  "tokio",
- "tracing",
- "tracing-subscriber 0.3.20",
- "url",
-]
-
-[[package]]
-name = "commonware-avs-usecases"
-version = "0.1.0"
-dependencies = [
- "alloy",
- "alloy-primitives",
- "alloy-provider",
- "alloy-signer-local",
- "anyhow",
- "ark-bn254",
- "async-trait",
- "axum 0.7.9",
- "bytes",
- "clap",
- "commonware-avs-bindings",
- "commonware-avs-core",
- "commonware-avs-node",
- "commonware-avs-router",
- "commonware-codec",
- "commonware-cryptography",
- "commonware-p2p",
- "commonware-runtime",
- "commonware-utils",
- "dotenv",
- "eigen-client-avsregistry",
- "eigen-common",
- "eigen-crypto-bls",
- "eigen-logging",
- "eigen-services-operatorsinfo",
- "eigen-utils",
- "governor",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber 0.3.20",
  "url",
 ]
 
@@ -2439,6 +2361,90 @@ name = "core-foundation-sys"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
+
+[[package]]
+name = "counter-bindings"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+]
+
+[[package]]
+name = "counter-common"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "alloy-primitives",
+ "alloy-provider",
+ "anyhow",
+ "async-trait",
+ "bytes",
+ "commonware-avs-bindings",
+ "commonware-avs-core",
+ "commonware-avs-eigenlayer",
+ "commonware-codec",
+ "commonware-cryptography",
+ "counter-bindings",
+ "url",
+]
+
+[[package]]
+name = "counter-node"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ark-bn254",
+ "async-trait",
+ "clap",
+ "commonware-avs-core",
+ "commonware-avs-eigenlayer",
+ "commonware-avs-node",
+ "commonware-avs-router",
+ "commonware-cryptography",
+ "commonware-p2p",
+ "commonware-runtime",
+ "commonware-utils",
+ "counter-common",
+ "dotenv",
+ "eigen-logging",
+ "governor",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
+name = "counter-router"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "alloy-primitives",
+ "alloy-provider",
+ "alloy-signer-local",
+ "anyhow",
+ "ark-bn254",
+ "async-trait",
+ "clap",
+ "commonware-avs-bindings",
+ "commonware-avs-core",
+ "commonware-avs-eigenlayer",
+ "commonware-avs-router",
+ "commonware-cryptography",
+ "commonware-p2p",
+ "commonware-runtime",
+ "commonware-utils",
+ "counter-bindings",
+ "counter-common",
+ "dotenv",
+ "eigen-logging",
+ "governor",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.3.20",
+ "url",
+]
 
 [[package]]
 name = "cpufeatures"

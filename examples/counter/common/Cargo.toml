@@ -1,0 +1,20 @@
+[package]
+name = "counter-common"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+alloy = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-provider = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+commonware-avs-bindings = { path = "../../../bindings" }
+commonware-avs-core = { path = "../../../core" }
+commonware-avs-eigenlayer = { path = "../../../eigenlayer" }
+commonware-codec = { workspace = true }
+commonware-cryptography = { workspace = true }
+counter-bindings = { path = "../bindings" }
+url = { workspace = true }

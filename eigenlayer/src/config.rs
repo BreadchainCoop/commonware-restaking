@@ -1,5 +1,6 @@
 use alloy_primitives::Address;
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::{env, fs, str::FromStr};
 
 #[derive(Debug, Deserialize)]
@@ -15,7 +16,8 @@ pub struct ContractAddresses {
     pub bls_apk_registry: String,
     #[serde(rename = "blsSigCheck")]
     pub bls_sig_check_operator_state_retriever: String,
-    pub counter: String,
+    #[serde(flatten)]
+    pub extra: HashMap<String, String>,
 }
 
 impl AvsDeployment {
@@ -47,7 +49,15 @@ impl AvsDeployment {
         )?)
     }
 
-    pub fn counter_address(&self) -> Result<Address, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Address::from_str(&self.addresses.counter)?)
+    pub fn custom_address(
+        &self,
+        name: &str,
+    ) -> Result<Address, Box<dyn std::error::Error + Send + Sync>> {
+        let addr = self
+            .addresses
+            .extra
+            .get(name)
+            .ok_or_else(|| format!("Address '{}' not found in deployment config", name))?;
+        Ok(Address::from_str(addr)?)
     }
 }

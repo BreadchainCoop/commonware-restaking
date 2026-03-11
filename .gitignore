@@ -1,6 +1,14 @@
+# OS
 .DS_Store
+
+# Rust
 /target
+scripts/target
+
+# Environment
 .env
+
+# Config / local node state
 config/config.json
 config/.nodes/
 !config/.nodes/.gitkeep
@@ -12,6 +20,3 @@ config/.nodes/
 test_processes.pids
 *.log
 *.bak
-
-# Script build artifacts
-scripts/target
