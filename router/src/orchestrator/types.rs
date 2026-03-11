@@ -151,8 +151,11 @@ where
             while !threshold_met {
                 // Broadcast payload
                 let task_data = self.task_creator.get_task_metadata();
-                let message =
-                    Aggregation::<TC::TaskData>::new(current_round, task_data, Some(Payload::Start));
+                let message = Aggregation::<TC::TaskData>::new(
+                    current_round,
+                    task_data,
+                    Some(Payload::Start),
+                );
                 let mut buf = Vec::with_capacity(message.encode_size());
                 message.write(&mut buf);
                 sender
