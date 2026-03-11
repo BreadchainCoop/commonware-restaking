@@ -231,7 +231,19 @@ where
             }
             let mut buf = Vec::with_capacity(message.encode_size());
             message.write(&mut buf);
-            let payload = validator.validate_and_return_expected_hash(&buf).await?;
+            let payload = match validator.validate_and_return_expected_hash(&buf).await {
+                Ok(p) => p,
+                Err(e) => {
+                    info!(
+                        round,
+                        error = %e,
+                        "validation failed for round, will retry on next broadcast"
+                    );
+                    // Remove from signed set so we can retry if the orchestrator re-broadcasts
+                    signed.remove(&round);
+                    continue;
+                }
+            };
             info!(
                 "Generating signature for round: {}, payload hash: {}",
                 round,

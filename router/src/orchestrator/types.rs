@@ -12,7 +12,7 @@ use commonware_p2p::{Receiver, Sender};
 use commonware_runtime::Clock;
 use commonware_utils::hex;
 use std::{collections::HashMap, time::Duration};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::creator::Creator;
 use crate::executor::{VerificationData, VerificationExecutor};
@@ -127,7 +127,14 @@ where
         let mut signatures = HashMap::new();
 
         loop {
-            let (payload, current_round) = self.task_creator.get_payload_and_round().await.unwrap();
+            let (payload, current_round) = match self.task_creator.get_payload_and_round().await {
+                Ok(result) => result,
+                Err(e) => {
+                    info!("Waiting for task: {}", e);
+                    self.runtime.sleep(self.aggregation_frequency).await;
+                    continue;
+                }
+            };
 
             // Create a new hasher for each iteration
             let mut hasher = Sha256::new();
@@ -139,171 +146,188 @@ where
                 "generated payload for state"
             );
 
-            // Broadcast payload
-            let task_data = self.task_creator.get_task_metadata();
-            let message =
-                Aggregation::<TC::TaskData>::new(current_round, task_data, Some(Payload::Start));
-            let mut buf = Vec::with_capacity(message.encode_size());
-            message.write(&mut buf);
-            sender
-                .send(commonware_p2p::Recipients::All, Bytes::from(buf), true)
-                .await
-                .expect("failed to broadcast message");
+            // Retry loop: re-broadcast the same round until threshold is met
+            let mut threshold_met = false;
+            while !threshold_met {
+                // Broadcast payload
+                let task_data = self.task_creator.get_task_metadata();
+                let message =
+                    Aggregation::<TC::TaskData>::new(current_round, task_data, Some(Payload::Start));
+                let mut buf = Vec::with_capacity(message.encode_size());
+                message.write(&mut buf);
+                sender
+                    .send(commonware_p2p::Recipients::All, Bytes::from(buf), true)
+                    .await
+                    .expect("failed to broadcast message");
 
-            // Only create a new signature entry if one doesn't exist for this round
-            use std::collections::hash_map::Entry;
-            match signatures.entry(current_round) {
-                Entry::Vacant(e) => {
-                    e.insert(HashMap::new());
-                    info!(
-                        "Created signatures entry for state: {}, threshold is: {}",
-                        current_round, self.t
-                    );
+                // Only create a new signature entry if one doesn't exist for this round
+                use std::collections::hash_map::Entry;
+                match signatures.entry(current_round) {
+                    Entry::Vacant(e) => {
+                        e.insert(HashMap::new());
+                        info!(
+                            "Created signatures entry for state: {}, threshold is: {}",
+                            current_round, self.t
+                        );
+                    }
+                    Entry::Occupied(_) => {}
                 }
-                Entry::Occupied(_) => {}
-            }
 
-            // Listen for messages until the next broadcast
-            let continue_time = self.runtime.current() + self.aggregation_frequency;
-            loop {
-                select! {
-                    _ = self.runtime.sleep_until(continue_time) => {break;},
-                    msg = receiver.recv() => {
-                        // Parse message
-                        let (sender, msg) = match msg {
-                            Ok(msg) => msg,
-                            Err(_) => continue,
-                        };
+                // Listen for messages until the next broadcast
+                let continue_time = self.runtime.current() + self.aggregation_frequency;
+                loop {
+                    select! {
+                        _ = self.runtime.sleep_until(continue_time) => {break;},
+                        msg = receiver.recv() => {
+                            // Parse message
+                            let (sender, msg) = match msg {
+                                Ok(msg) => msg,
+                                Err(_) => continue,
+                            };
 
-                        // Get contributor
-                        let Some(contributor) = self.ordered_contributors.get(&sender) else {
-                            info!("Received message from unknown sender: {:?}", sender);
-                            continue;
-                        };
-
-                        // Check if round exists
-                        let Ok(msg): Result<Aggregation<TC::TaskData>, _> = Aggregation::read(&mut std::io::Cursor::new(msg)) else {
-                            info!("Failed to decode message from sender: {:?}", sender);
-                            continue;
-                        };
-                        let Some(round) = signatures.get_mut(&msg.round) else {
-                            info!("Received signature for unknown round: {} from contributor: {:?}", msg.round, contributor);
-                            continue;
-                        };
-
-                        // Check if contributor has already signed
-                        if round.contains_key(contributor) {
-                            info!("Contributor already signed for round: {} contributor: {:?}", msg.round, contributor);
-                            continue;
-                        }
-
-                        // Extract signature
-                        let signature = match msg.payload.clone() {
-                            Some(Payload::Signature(signature)) => {
-                                info!("Received signature for round: {} from contributor: {:?}", msg.round, contributor);
-                                signature
-                            },
-                            _ => {
-                                info!("Received non-signature payload from contributor: {:?}", contributor);
-                                continue;
-                            }
-                        };
-                        let Ok(signature) = Bn254Signature::try_from(signature) else {
-                            info!("Failed to parse signature from contributor: {:?}", contributor);
-                            continue;
-                        };
-
-                        let mut buf = Vec::with_capacity(msg.encode_size());
-                        msg.write(&mut buf);
-                        let expected_digest = match self.validator.validate_and_return_expected_hash(&buf).await {
-                            Ok(d) => d,
-                            Err(e) => {
-                                info!(
-                                    "Validator rejected message for round {} from contributor {:?}: {}",
-                                    msg.round, contributor, e
-                                );
-                                // Likely a stale signature after the round was executed; ignore safely.
-                                continue;
-                            }
-                        };
-                        info!("Verifying signature for round: {} from contributor: {:?}, expected digest: {}",
-                              msg.round, contributor, hex(&expected_digest));
-
-                        // Get the contributor's public key for verification
-                        let contributor_pubkey = &self.contributors[*contributor];
-                        if !contributor_pubkey.verify(None, &expected_digest, &signature) {
-                            info!("Signature verification failed for contributor: {:?}", contributor);
-                            continue;
-                        }
-
-                        info!("Signature verification succeeded for contributor: {:?}", contributor);
-
-                        // Insert signature
-                        round.insert(contributor, signature);
-
-                        // Check if should aggregate
-                        info!("Current signatures count for round {}: {}, threshold: {}",
-                              msg.round, round.len(), self.t);
-                        if round.len() < self.t {
-                            continue;
-                        }
-
-                        // Aggregate signatures
-                        let mut participating = Vec::new();
-                        let mut participating_g1 = Vec::new();
-                        let mut signatures = Vec::new();
-                        for i in 0..self.contributors.len() {
-                            let Some(signature) = round.get(&i) else {
+                            // Get contributor
+                            let Some(contributor) = self.ordered_contributors.get(&sender) else {
+                                info!("Received message from unknown sender: {:?}", sender);
                                 continue;
                             };
-                            let contributor = &self.contributors[i];
-                            let g1_pubkey : G1PublicKey= self.g1_map[contributor].clone();
-                            participating_g1.push(g1_pubkey.clone());
-                            participating.push(contributor.clone());
-                            signatures.push(signature.clone());
-                        }
-                        let agg_signature = aggregate_signatures(&signatures).unwrap();
 
-                        // Verify aggregated signature (already verified individual signatures so should never fail)
-                        if !aggregate_verify(&participating, None, &expected_digest, &agg_signature) {
-                            panic!("failed to verify aggregated signature");
-                        }
+                            // Check if round exists
+                            let Ok(msg): Result<Aggregation<TC::TaskData>, _> = Aggregation::read(&mut std::io::Cursor::new(msg)) else {
+                                info!("Failed to decode message from sender: {:?}", sender);
+                                continue;
+                            };
+                            let Some(round) = signatures.get_mut(&msg.round) else {
+                                info!("Received signature for unknown round: {} from contributor: {:?}", msg.round, contributor);
+                                continue;
+                            };
 
-                        // Execute verification with the aggregated signature
-                        // Serialize BLS-specific types to bytes for generic VerificationData
-                        let serialized_signatures: Vec<Vec<u8>> = signatures.iter().map(|s| s.to_vec()).collect();
-                        let serialized_public_keys: Vec<Vec<u8>> = participating.iter().map(|pk| pk.to_vec()).collect();
-
-                        // Serialize G1 public keys to context
-                        let mut context = Vec::new();
-                        for g1_pubkey in &participating_g1 {
-                            context.extend_from_slice(g1_pubkey);
-                        }
-
-                        let verification_data = VerificationData::new(serialized_signatures, serialized_public_keys)
-                            .with_context(context);
-
-                        match self.executor.execute_verification(
-                            &expected_digest,
-                            verification_data,
-                            Some(&msg.metadata),
-                        ).await {
-                            Ok(result) => {
-                                info!(
-                                    round = msg.round,
-                                    "Successfully executed verification with aggregated signature. Result: {:?}",
-                                    result
-                                );
-                            },
-                            Err(e) => {
-                                info!(
-                                    round = msg.round,
-                                    "Failed to execute verification with aggregated signature: {:?}",
-                                    e
-                                );
+                            // Check if contributor has already signed
+                            if round.contains_key(contributor) {
+                                info!("Contributor already signed for round: {} contributor: {:?}", msg.round, contributor);
+                                continue;
                             }
-                        }
-                    },
+
+                            // Extract signature
+                            let signature = match msg.payload.clone() {
+                                Some(Payload::Signature(signature)) => {
+                                    info!("Received signature for round: {} from contributor: {:?}", msg.round, contributor);
+                                    signature
+                                },
+                                _ => {
+                                    info!("Received non-signature payload from contributor: {:?}", contributor);
+                                    continue;
+                                }
+                            };
+                            let Ok(signature) = Bn254Signature::try_from(signature) else {
+                                info!("Failed to parse signature from contributor: {:?}", contributor);
+                                continue;
+                            };
+
+                            let mut buf = Vec::with_capacity(msg.encode_size());
+                            msg.write(&mut buf);
+                            let expected_digest = match self.validator.validate_and_return_expected_hash(&buf).await {
+                                Ok(d) => d,
+                                Err(e) => {
+                                    info!(
+                                        "Validator rejected message for round {} from contributor {:?}: {}",
+                                        msg.round, contributor, e
+                                    );
+                                    // Likely a stale signature after the round was executed; ignore safely.
+                                    continue;
+                                }
+                            };
+                            info!("Verifying signature for round: {} from contributor: {:?}, expected digest: {}",
+                                  msg.round, contributor, hex(&expected_digest));
+
+                            // Get the contributor's public key for verification
+                            let contributor_pubkey = &self.contributors[*contributor];
+                            if !contributor_pubkey.verify(None, &expected_digest, &signature) {
+                                info!("Signature verification failed for contributor: {:?}", contributor);
+                                continue;
+                            }
+
+                            info!("Signature verification succeeded for contributor: {:?}", contributor);
+
+                            // Insert signature
+                            round.insert(contributor, signature);
+
+                            // Check if should aggregate
+                            info!("Current signatures count for round {}: {}, threshold: {}",
+                                  msg.round, round.len(), self.t);
+                            if round.len() < self.t {
+                                continue;
+                            }
+
+                            // Aggregate signatures
+                            let mut participating = Vec::new();
+                            let mut participating_g1 = Vec::new();
+                            let mut signatures = Vec::new();
+                            for i in 0..self.contributors.len() {
+                                let Some(signature) = round.get(&i) else {
+                                    continue;
+                                };
+                                let contributor = &self.contributors[i];
+                                let g1_pubkey : G1PublicKey= self.g1_map[contributor].clone();
+                                participating_g1.push(g1_pubkey.clone());
+                                participating.push(contributor.clone());
+                                signatures.push(signature.clone());
+                            }
+                            let agg_signature = aggregate_signatures(&signatures).unwrap();
+
+                            // Verify aggregated signature (already verified individual signatures so should never fail)
+                            if !aggregate_verify(&participating, None, &expected_digest, &agg_signature) {
+                                panic!("failed to verify aggregated signature");
+                            }
+
+                            // Execute verification with the aggregated signature
+                            // Serialize BLS-specific types to bytes for generic VerificationData
+                            let serialized_signatures: Vec<Vec<u8>> = signatures.iter().map(|s| s.to_vec()).collect();
+                            let serialized_public_keys: Vec<Vec<u8>> = participating.iter().map(|pk| pk.to_vec()).collect();
+
+                            // Serialize G1 public keys to context
+                            let mut context = Vec::new();
+                            for g1_pubkey in &participating_g1 {
+                                context.extend_from_slice(g1_pubkey);
+                            }
+
+                            let verification_data = VerificationData::new(serialized_signatures, serialized_public_keys)
+                                .with_context(context);
+
+                            match self.executor.execute_verification(
+                                &expected_digest,
+                                verification_data,
+                                Some(&msg.metadata),
+                            ).await {
+                                Ok(result) => {
+                                    info!(
+                                        round = msg.round,
+                                        "Successfully executed verification with aggregated signature. Result: {:?}",
+                                        result
+                                    );
+                                    threshold_met = true;
+                                    break; // exit select loop, while condition exits retry
+                                },
+                                Err(e) => {
+                                    info!(
+                                        round = msg.round,
+                                        "Failed to execute verification with aggregated signature: {:?}",
+                                        e
+                                    );
+                                }
+                            }
+                        },
+                    }
+                }
+
+                // If threshold was not met, log and re-broadcast
+                if !threshold_met {
+                    let sig_count = signatures.get(&current_round).map_or(0, |s| s.len());
+                    warn!(
+                        round = current_round,
+                        signatures = sig_count,
+                        threshold = self.t,
+                        "Threshold not met, re-broadcasting round"
+                    );
                 }
             }
         }
