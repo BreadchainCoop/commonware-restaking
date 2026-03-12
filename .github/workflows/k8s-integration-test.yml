@@ -1,0 +1,369 @@
+name: K8s Integration Test
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+      - staging
+  pull_request:
+    branches:
+      - main
+      - dev
+      - staging
+
+jobs:
+  k8s-e2e-test:
+    name: E2E Test with Kind
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: avs-test
+          config: k8s/kind-config.yaml
+
+      - name: Build local images
+        run: |
+          echo "Building router image..."
+          docker build -f usecases/counter/router/Dockerfile -t commonware-avs-router:ci .
+
+          echo "Building node image..."
+          docker build -f usecases/counter/node/Dockerfile -t commonware-avs-node:ci .
+
+      - name: Load images into kind
+        run: |
+          echo "Loading images into kind cluster..."
+          kind load docker-image commonware-avs-router:ci --name avs-test
+          kind load docker-image commonware-avs-node:ci --name avs-test
+
+          echo "Pulling external images and loading into kind..."
+          docker pull ghcr.io/breadchaincoop/ethereum:dev
+          docker pull ghcr.io/breadchaincoop/eigenlayer:dev
+          docker pull ghcr.io/layr-labs/cerberus:0.0.2
+          docker pull bitnami/kubectl:1.28
+          docker pull busybox:1.36
+
+          kind load docker-image ghcr.io/breadchaincoop/ethereum:dev --name avs-test
+          kind load docker-image ghcr.io/breadchaincoop/eigenlayer:dev --name avs-test
+          kind load docker-image ghcr.io/layr-labs/cerberus:0.0.2 --name avs-test
+          kind load docker-image bitnami/kubectl:1.28 --name avs-test
+          kind load docker-image busybox:1.36 --name avs-test
+
+      - name: Apply K8s manifests
+        run: |
+          echo "Applying Kubernetes manifests..."
+          kubectl apply -k k8s/overlays/ci/
+
+          echo "Waiting for namespace to be ready..."
+          kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/commonware-avs --timeout=30s
+
+      - name: Wait for ethereum to be ready
+        run: |
+          echo "Waiting for ethereum deployment to be ready..."
+          kubectl wait --for=condition=available deployment/ethereum \
+            -n commonware-avs --timeout=120s
+
+          echo "Verifying ethereum pod is running..."
+          kubectl get pods -n commonware-avs -l app=ethereum
+
+      - name: Wait for eigenlayer-setup job to complete
+        run: |
+          echo "Waiting for eigenlayer-setup job to complete..."
+          timeout=300
+          elapsed=0
+
+          while [ $elapsed -lt $timeout ]; do
+            STATUS=$(kubectl get job eigenlayer-setup -n commonware-avs -o jsonpath='{.status.succeeded}' 2>/dev/null || echo "0")
+            if [ "$STATUS" = "1" ]; then
+              echo "EigenLayer setup job completed successfully!"
+              break
+            fi
+
+            # Check for failure
+            FAILED=$(kubectl get job eigenlayer-setup -n commonware-avs -o jsonpath='{.status.failed}' 2>/dev/null || echo "0")
+            if [ "$FAILED" != "0" ] && [ "$FAILED" != "" ]; then
+              echo "EigenLayer setup job failed!"
+              kubectl logs job/eigenlayer-setup -n commonware-avs --tail=100
+              exit 1
+            fi
+
+            echo "Waiting for eigenlayer-setup job... ($elapsed/$timeout seconds)"
+            sleep 10
+            elapsed=$((elapsed + 10))
+          done
+
+          if [ $elapsed -ge $timeout ]; then
+            echo "Timeout waiting for eigenlayer-setup job"
+            kubectl logs job/eigenlayer-setup -n commonware-avs --tail=100
+            exit 1
+          fi
+
+      - name: Wait for all pods to be ready
+        run: |
+          echo "Waiting for signer deployment..."
+          kubectl wait --for=condition=available deployment/signer \
+            -n commonware-avs --timeout=120s
+
+          echo "Waiting for avs-node statefulset pods..."
+          kubectl wait --for=condition=ready pod -l app=avs-node \
+            -n commonware-avs --timeout=180s
+
+          echo "Waiting for router deployment..."
+          kubectl wait --for=condition=available deployment/router \
+            -n commonware-avs --timeout=120s
+
+          echo "All pods ready!"
+          kubectl get pods -n commonware-avs
+
+      - name: Test counter increment functionality
+        run: |
+          echo "Testing counter increment..."
+
+          # Wait for services to be fully ready
+          sleep 20
+
+          # Get the counter contract address from the deployment file
+          # We need to exec into a pod to read the file from the PVC
+          COUNTER_ADDRESS=$(kubectl exec deployment/router -n commonware-avs -- \
+            cat /app/.nodes/avs_deploy.json | jq -r '.addresses.counter' || echo "")
+
+          if [ -z "$COUNTER_ADDRESS" ]; then
+            echo "Counter contract address not found in deployment file"
+            kubectl exec deployment/router -n commonware-avs -- cat /app/.nodes/avs_deploy.json
+            exit 1
+          fi
+          echo "Counter contract address: $COUNTER_ADDRESS"
+
+          # Read the initial counter value from the smart contract
+          # The function signature for "number()" is 0x8381f58a
+          INITIAL_COUNT=$(curl -s -X POST http://localhost:8545 \
+            -H "Content-Type: application/json" \
+            -d '{
+              "jsonrpc":"2.0",
+              "method":"eth_call",
+              "params":[{
+                "to":"'$COUNTER_ADDRESS'",
+                "data":"0x8381f58a"
+              }, "latest"],
+              "id":1
+            }' | jq -r '.result' | xargs printf "%d\n")
+
+          echo "Initial counter value: $INITIAL_COUNT"
+          echo "INITIAL_COUNT=$INITIAL_COUNT" >> $GITHUB_ENV
+
+          # Wait for 5 aggregation cycles (30 seconds each by default = 150 seconds)
+          echo "Waiting for 5 aggregation cycles (150 seconds)..."
+          sleep 150
+
+          # Read the final counter value from the smart contract
+          FINAL_COUNT=$(curl -s -X POST http://localhost:8545 \
+            -H "Content-Type: application/json" \
+            -d '{
+              "jsonrpc":"2.0",
+              "method":"eth_call",
+              "params":[{
+                "to":"'$COUNTER_ADDRESS'",
+                "data":"0x8381f58a"
+              }, "latest"],
+              "id":1
+            }' | jq -r '.result' | xargs printf "%d\n")
+
+          echo "Final counter value: $FINAL_COUNT"
+
+          # Verify increment
+          if [ "$FINAL_COUNT" -gt "$INITIAL_COUNT" ]; then
+            echo "Counter successfully incremented from $INITIAL_COUNT to $FINAL_COUNT"
+            # Save the current count for next step
+            echo "LAST_COUNT=$FINAL_COUNT" >> $GITHUB_ENV
+            echo "COUNTER_ADDRESS=$COUNTER_ADDRESS" >> $GITHUB_ENV
+          else
+            echo "Counter did not increment (still at $FINAL_COUNT)"
+            echo "=== Recent router logs ==="
+            kubectl logs deployment/router -n commonware-avs --tail 50
+            exit 1
+          fi
+
+      - name: Test with fast aggregation frequency
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        run: |
+          echo "Testing with fast aggregation frequency (0.5 seconds)..."
+
+          # Update the configmap to set fast aggregation
+          kubectl patch configmap env-config -n commonware-avs --type merge \
+            -p '{"data":{"AGGREGATION_FREQUENCY":"0.5"}}'
+
+          # Restart router to pick up new environment variables
+          kubectl rollout restart deployment/router -n commonware-avs
+          kubectl wait --for=condition=available deployment/router \
+            -n commonware-avs --timeout=60s
+
+          # Wait for router to be ready
+          sleep 10
+
+          # Get the starting counter value from previous step
+          START_COUNT=${{ env.LAST_COUNT }}
+          DEFAULT_COUNT=${{ env.LAST_COUNT }}
+          echo "Starting counter value: $START_COUNT"
+          echo "DEFAULT_COUNT=$DEFAULT_COUNT" >> $GITHUB_ENV
+
+          # Wait for 1 minute total with fast aggregation (0.5 seconds each cycle)
+          echo "Waiting for 1 minute with fast aggregation..."
+          sleep 60
+
+          # Read the counter value after fast aggregation
+          FAST_COUNT=$(curl -s -X POST http://localhost:8545 \
+            -H "Content-Type: application/json" \
+            -d '{
+              "jsonrpc":"2.0",
+              "method":"eth_call",
+              "params":[{
+                "to":"'${{ env.COUNTER_ADDRESS }}'",
+                "data":"0x8381f58a"
+              }, "latest"],
+              "id":1
+            }' | jq -r '.result' | xargs printf "%d\n")
+
+          echo "Counter value after fast aggregation: $FAST_COUNT"
+
+          # Verify fast aggregation worked (should have multiple increments)
+          if [ "$FAST_COUNT" -gt "$START_COUNT" ]; then
+            INCREMENTS=$((FAST_COUNT - START_COUNT))
+            echo "Fast aggregation successful: $INCREMENTS increments in ~60 seconds"
+            echo "LAST_COUNT=$FAST_COUNT" >> $GITHUB_ENV
+          else
+            echo "Fast aggregation failed (counter still at $FAST_COUNT)"
+            kubectl logs deployment/router -n commonware-avs --tail 50
+            exit 1
+          fi
+
+      - name: Test with ingress enabled
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        run: |
+          echo "Testing with ingress enabled..."
+
+          # Update the configmap to enable ingress
+          kubectl patch configmap env-config -n commonware-avs --type merge \
+            -p '{"data":{"INGRESS":"true"}}'
+
+          # Restart router to pick up new environment variables
+          kubectl rollout restart deployment/router -n commonware-avs
+          kubectl wait --for=condition=available deployment/router \
+            -n commonware-avs --timeout=60s
+
+          # Wait for router to be ready and ingress server to start
+          sleep 15
+
+          # Get the starting counter value from previous step
+          START_COUNT=${{ env.LAST_COUNT }}
+          echo "Starting counter value: $START_COUNT"
+
+          # Send ingress requests to trigger increments
+          echo "Sending ingress requests to /trigger endpoint..."
+          for i in {1..5}; do
+            echo "=== Sending ingress request $i ==="
+            # The ingress server runs on port 8080 with /trigger endpoint
+            RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST http://localhost:8080/trigger \
+              -H "Content-Type: application/json" \
+              -d '{"body": {"metadata": {"request_id": "'$i'", "action": "increment"}}}')
+            HTTP_STATUS=$(echo "$RESPONSE" | tail -n 1 | cut -d: -f2)
+            BODY=$(echo "$RESPONSE" | head -n -1)
+            echo "Response: $BODY"
+            echo "HTTP Status: $HTTP_STATUS"
+
+            if [ "$HTTP_STATUS" != "200" ]; then
+              echo "Warning: HTTP request failed with status $HTTP_STATUS"
+            fi
+            sleep 1
+          done
+
+          # Wait for aggregation to process the ingress requests
+          echo "Waiting for aggregation to process ingress requests..."
+          sleep 15
+
+          # Read the counter value after ingress
+          COUNTER_ADDR="${{ env.COUNTER_ADDRESS }}"
+          COUNTER_RESPONSE=$(curl -s -X POST http://localhost:8545 \
+            -H "Content-Type: application/json" \
+            -d '{
+              "jsonrpc":"2.0",
+              "method":"eth_call",
+              "params":[{
+                "to":"'$COUNTER_ADDR'",
+                "data":"0x8381f58a"
+              }, "latest"],
+              "id":1
+            }')
+
+          COUNTER_HEX=$(echo "$COUNTER_RESPONSE" | jq -r '.result')
+
+          # Handle empty or invalid response
+          if [ -z "$COUNTER_HEX" ] || [ "$COUNTER_HEX" = "null" ] || [ "$COUNTER_HEX" = "0x" ]; then
+            echo "Warning: Invalid counter response, defaulting to 0"
+            INGRESS_COUNT=0
+          else
+            INGRESS_COUNT=$(printf "%d\n" "$COUNTER_HEX" 2>/dev/null || echo "0")
+          fi
+
+          echo "Counter value after ingress: $INGRESS_COUNT"
+
+          # Verify ingress increments worked
+          if [ "$INGRESS_COUNT" -gt "$START_COUNT" ]; then
+            INCREMENTS=$((INGRESS_COUNT - START_COUNT))
+            echo "Ingress test successful: $INCREMENTS increments after ingress requests"
+          else
+            echo "Ingress test failed (counter still at $INGRESS_COUNT)"
+            kubectl logs deployment/router -n commonware-avs --tail 50
+            exit 1
+          fi
+
+          # Final summary
+          echo "=== Test Summary ==="
+          echo "Initial count: ${{ env.INITIAL_COUNT }}"
+          echo "After default aggregation (5 cycles @ 30s): ${{ env.DEFAULT_COUNT }}"
+          echo "After fast aggregation: $FAST_COUNT"
+          echo "After ingress requests (5 requests): $INGRESS_COUNT"
+          echo "Total increments: $((INGRESS_COUNT - ${{ env.INITIAL_COUNT }}))"
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          echo "=== Kubernetes Cluster Status ==="
+          kubectl get all -n commonware-avs
+
+          echo "=== Pod Descriptions ==="
+          kubectl describe pods -n commonware-avs
+
+          echo "=== Ethereum Logs ==="
+          kubectl logs deployment/ethereum -n commonware-avs --tail 50 || true
+
+          echo "=== EigenLayer Setup Logs ==="
+          kubectl logs job/eigenlayer-setup -n commonware-avs --tail 100 || true
+
+          echo "=== Signer Logs ==="
+          kubectl logs deployment/signer -n commonware-avs --tail 50 || true
+
+          echo "=== Router Logs ==="
+          kubectl logs deployment/router -n commonware-avs --tail 100 || true
+
+          echo "=== AVS Node Logs ==="
+          for i in 0 1 2; do
+            echo "--- avs-node-$i logs ---"
+            kubectl logs avs-node-$i -n commonware-avs --tail 50 || true
+          done
+
+          echo "=== Events ==="
+          kubectl get events -n commonware-avs --sort-by='.lastTimestamp'
+
+      - name: Cleanup
+        if: always()
+        run: |
+          echo "Cleaning up kind cluster..."
+          kind delete cluster --name avs-test

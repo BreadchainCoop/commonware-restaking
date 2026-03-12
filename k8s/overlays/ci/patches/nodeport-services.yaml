@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ethereum-svc
+  namespace: commonware-avs
+spec:
+  type: NodePort
+  ports:
+    - name: rpc
+      port: 8545
+      targetPort: 8545
+      nodePort: 30545
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: router-svc
+  namespace: commonware-avs
+spec:
+  type: NodePort
+  ports:
+    - name: app
+      port: 3000
+      targetPort: 3000
+      nodePort: 30000
+    - name: ingress
+      port: 8080
+      targetPort: 8080
+      nodePort: 30080

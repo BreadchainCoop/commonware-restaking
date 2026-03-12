@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: signer
+  namespace: commonware-avs
+  labels:
+    app: signer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: signer
+  template:
+    metadata:
+      labels:
+        app: signer
+    spec:
+      initContainers:
+        - name: wait-for-eigenlayer
+          image: bitnami/kubectl:1.28
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for eigenlayer-setup job to complete..."
+              until kubectl get job eigenlayer-setup -n commonware-avs -o jsonpath='{.status.succeeded}' 2>/dev/null | grep -q "1"; do
+                echo "Waiting for eigenlayer-setup job..."
+                sleep 5
+              done
+              echo "EigenLayer setup complete!"
+      containers:
+        - name: signer
+          image: ghcr.io/layr-labs/cerberus:0.0.2
+          ports:
+            - containerPort: 50051
+              name: grpc
+            - containerPort: 9081
+              name: metrics
+          env:
+            - name: METRICS_PORT
+              value: "9081"
+          envFrom:
+            - configMapRef:
+                name: env-config
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          readinessProbe:
+            tcpSocket:
+              port: 50051
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 50051
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      serviceAccountName: avs-service-account

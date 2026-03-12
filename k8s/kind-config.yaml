@@ -1,0 +1,24 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: avs-test
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      # Ethereum RPC - used by CI tests for counter verification
+      - containerPort: 30545
+        hostPort: 8545
+        protocol: TCP
+      # Router app - for local development (not used in CI)
+      - containerPort: 30000
+        hostPort: 4000
+        protocol: TCP
+      # Router ingress - used by CI tests for ingress endpoint testing
+      - containerPort: 30080
+        hostPort: 8080
+        protocol: TCP
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"

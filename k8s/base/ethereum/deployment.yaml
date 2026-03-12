@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ethereum
+  namespace: commonware-avs
+  labels:
+    app: ethereum
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ethereum
+  template:
+    metadata:
+      labels:
+        app: ethereum
+    spec:
+      containers:
+        - name: ethereum
+          image: ghcr.io/breadchaincoop/ethereum:dev
+          ports:
+            - containerPort: 8545
+              name: rpc
+          envFrom:
+            - configMapRef:
+                name: env-config
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          readinessProbe:
+            tcpSocket:
+              port: 8545
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 8545
+            initialDelaySeconds: 10
+            periodSeconds: 10

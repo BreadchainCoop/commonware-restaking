@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: avs-nodes
+  namespace: commonware-avs
+  labels:
+    app: avs-node
+spec:
+  selector:
+    app: avs-node
+  clusterIP: None
+  ports:
+    # Headless service for StatefulSet - all pods listen on port 3001
+    # Access via: avs-node-{0,1,2}.avs-nodes.commonware-avs.svc.cluster.local:3001
+    - name: grpc
+      port: 3001
+      targetPort: 3001
