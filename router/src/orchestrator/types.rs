@@ -127,7 +127,13 @@ where
         let mut signatures = HashMap::new();
 
         loop {
-            let (payload, current_round) = self.task_creator.get_payload_and_round().await.unwrap();
+            let (payload, current_round) = match self.task_creator.get_payload_and_round().await {
+                Ok(v) => v,
+                Err(e) => {
+                    info!("get_payload_and_round error, retrying: {}", e);
+                    continue;
+                }
+            };
 
             // Create a new hasher for each iteration
             let mut hasher = Sha256::new();
@@ -294,6 +300,7 @@ where
                                     "Successfully executed verification with aggregated signature. Result: {:?}",
                                     result
                                 );
+                                break;
                             },
                             Err(e) => {
                                 info!(

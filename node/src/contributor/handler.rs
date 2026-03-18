@@ -103,7 +103,10 @@ where
         R: Receiver<PublicKey = PubKey>,
     {
         let mut signed = HashSet::new();
-        let mut signatures: HashMap<u64, HashMap<usize, Sig>> = HashMap::new();
+        // Stores (original_metadata, contributor_index -> signature) per round.
+        // The metadata is kept so we can reconstruct a valid re-broadcast message
+        // when the orchestrator restarts and re-sends Start for a round we already signed.
+        let mut signatures: HashMap<u64, (T, HashMap<usize, Sig>)> = HashMap::new();
 
         let validator = self
             .validator
@@ -134,11 +137,11 @@ where
                 };
 
                 // Check if contributor already signed
-                let Some(signatures) = signatures.get_mut(&round) else {
+                let Some((_, round_sigs)) = signatures.get_mut(&round) else {
                     info!("signatures not found: {:?}", round);
                     continue;
                 };
-                if signatures.contains_key(contributor) {
+                if round_sigs.contains_key(contributor) {
                     info!("contributor already signed: {:?}", contributor);
                     continue;
                 }
@@ -171,13 +174,13 @@ where
                 }
 
                 // Insert signature
-                signatures.insert(*contributor, signature);
+                round_sigs.insert(*contributor, signature);
 
                 // Check if should aggregate
-                if signatures.len() < threshold {
+                if round_sigs.len() < threshold {
                     info!(
                         "current signatures aggregated: {:?}, needed: {:?}, continuing aggregation",
-                        signatures.len(),
+                        round_sigs.len(),
                         threshold
                     );
                     continue;
@@ -188,7 +191,7 @@ where
                 let mut participating_g1 = Vec::new();
                 let mut sigs = Vec::new();
                 for (i, contributor) in contributors.iter().enumerate() {
-                    let Some(signature) = signatures.get(&i) else {
+                    let Some(signature) = round_sigs.get(&i) else {
                         continue;
                     };
                     participating.push(contributor.clone());
@@ -226,7 +229,28 @@ where
 
             // Check if already signed at round
             if !signed.insert(round) {
-                info!("already signed at round: {:?}", round);
+                info!("already signed at round: {:?}, re-broadcasting existing signature", round);
+                // Re-broadcast the existing signature so a restarted orchestrator can still
+                // collect it. We use the originally-signed metadata so the hash remains valid.
+                if let Some((stored_metadata, round_sigs)) = signatures.get(&round) {
+                    if let Some(existing_sig) = round_sigs.get(&self.me) {
+                        let resend = wire::Aggregation::<T> {
+                            round,
+                            metadata: stored_metadata.clone(),
+                            payload: Some(Payload::Signature(existing_sig.to_vec())),
+                        };
+                        let mut buf = Vec::with_capacity(resend.encode_size());
+                        resend.write(&mut buf);
+                        if let Err(e) = sender
+                            .send(commonware_p2p::Recipients::All, Bytes::from(buf), true)
+                            .await
+                        {
+                            info!("Failed to re-broadcast existing signature for round {}: {}", round, e);
+                        } else {
+                            info!(round, "re-broadcast existing signature");
+                        }
+                    }
+                }
                 continue;
             }
             let mut buf = Vec::with_capacity(message.encode_size());
@@ -239,10 +263,11 @@ where
             );
             let signature = self.signer.sign(None, &payload);
 
-            // Store signature
+            // Store signature alongside original metadata (needed for re-broadcast on restart)
             signatures
                 .entry(round)
-                .or_default()
+                .or_insert_with(|| (message.metadata.clone(), HashMap::new()))
+                .1
                 .insert(self.me, signature.clone());
 
             // Return signature to orchestrator
