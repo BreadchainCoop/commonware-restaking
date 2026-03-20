@@ -1,6 +1,6 @@
 use alloy::providers::ProviderBuilder;
-use commonware_avs_router::bindings::counter::Counter;
-use commonware_eigenlayer::config::AvsDeployment;
+use commonware_avs_eigenlayer::AvsDeployment;
+use counter_bindings::Counter;
 use std::{env, time::Duration};
 use tokio::time::sleep;
 
@@ -28,11 +28,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         deployment
     } else {
         // If load() doesn't work, we might need to set the environment variable
-        std::env::set_var("AVS_DEPLOYMENT_PATH", &deployment_path);
+        // SAFETY: This runs single-threaded before any concurrent work begins.
+        unsafe { std::env::set_var("AVS_DEPLOYMENT_PATH", &deployment_path) };
         AvsDeployment::load().map_err(|e| format!("Failed to load deployment: {}", e))?
     };
     let counter_address = deployment
-        .counter_address()
+        .custom_address("counter")
         .map_err(|e| format!("Failed to get counter address: {}", e))?;
     let http_rpc = env::var("HTTP_RPC").unwrap_or_else(|_| DEFAULT_HTTP_RPC.to_string());
 
@@ -41,7 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Create provider and counter instance
     let url = url::Url::parse(&http_rpc).map_err(|e| format!("Invalid RPC URL: {}", e))?;
-    let provider = ProviderBuilder::new().on_http(url);
+    let provider = ProviderBuilder::new().connect_http(url);
     let counter = Counter::new(counter_address, provider);
 
     // Get initial counter value
@@ -50,7 +51,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .call()
         .await
         .map_err(|e| format!("Failed to get initial counter: {}", e))?
-        ._0
         .to::<u64>();
     println!("Initial counter value: {}", initial_count);
 
@@ -67,7 +67,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .call()
             .await
             .map_err(|e| format!("Failed to get current counter: {}", e))?
-            ._0
             .to::<u64>();
         let increments = current_count.saturating_sub(initial_count);
 

@@ -1,7 +1,8 @@
 [package]
-name = "avs-scripts"
-version = "0.1.0"
-edition = "2021"
+name = "commonware-avs-scripts"
+version.workspace = true
+edition.workspace = true
+publish = false
 
 [[bin]]
 name = "verify_increments"
@@ -9,9 +10,9 @@ path = "verify_increments.rs"
 
 [dependencies]
 alloy = { workspace = true }
-tokio = { workspace = true }
-commonware-eigenlayer = { workspace = true }
-url = { workspace = true }
+commonware-avs-eigenlayer = { path = "../eigenlayer" }
+counter-bindings = { path = "../examples/counter/bindings" }
 dotenv = { workspace = true }
 serde = { workspace = true }
-commonware-avs-router = { path = ".." }
+tokio = { workspace = true }
+url = { workspace = true }

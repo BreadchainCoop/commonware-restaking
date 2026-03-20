@@ -1,0 +1,22 @@
+# Ignore VCS and OS files
+.git
+.gitignore
+.DS_Store
+
+# Ignore build artifacts
+/target
+scripts/target
+
+# Ignore local env and logs
+.env
+/logs
+
+# CI and project metadata not needed for build context
+.github
+.conductor
+
+# Node/config caches not needed in image build
+.nodes
+
+# Docker ignores itself
+.dockerignore

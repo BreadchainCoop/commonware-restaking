@@ -1,0 +1,38 @@
+[package]
+name = "counter-router"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[[bin]]
+name = "counter-router"
+path = "src/app.rs"
+
+[dependencies]
+alloy = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-provider = { workspace = true }
+alloy-signer-local = { workspace = true }
+anyhow = { workspace = true }
+ark-bn254 = { workspace = true }
+async-trait = { workspace = true }
+clap = { workspace = true }
+commonware-avs-bindings = { path = "../../../bindings" }
+commonware-avs-core = { path = "../../../core" }
+commonware-avs-eigenlayer = { path = "../../../eigenlayer" }
+commonware-avs-router = { path = "../../../router" }
+commonware-cryptography = { workspace = true }
+commonware-p2p = { workspace = true }
+commonware-runtime = { workspace = true }
+commonware-utils = { workspace = true }
+counter-bindings = { path = "../bindings" }
+counter-common = { path = "../common" }
+dotenv = { workspace = true }
+eigen-logging = { workspace = true }
+governor = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+url = { workspace = true }
