@@ -116,7 +116,9 @@ pub fn main() {
         MAX_MESSAGE_SIZE,
     );
 
-    // Allow handshakes from IPs that aren't yet in the registered peer set
+    // Required in Kubernetes (or similar) environments because Kubernetes DNAT/SNAT makes IP-based admission filtering inherently non-functional
+    // Source IPs observed at the listener will always be pod IPs, never the Service IPs registered in the oracle.
+    // The setting should be kept enabled if the router is deployed in a Kubernetes (or similar) environment.
     p2p_cfg.attempt_unregistered_handshakes = true;
 
     // Start runtime
