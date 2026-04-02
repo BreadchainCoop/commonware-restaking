@@ -193,8 +193,8 @@ pub fn main() {
             contributors_map.insert(verifier, verifier_g1);
         }
 
-        // Infer threshold
-        let threshold = 3; //hardcoded for now
+        // Number of signatures required for aggregation (equal to operator_count — all operators must sign).
+        let threshold = quorum_infos[0].operator_count;
 
         // Run as the orchestrator using the builder pattern
         const DEFAULT_MESSAGE_BACKLOG: usize = 256;
