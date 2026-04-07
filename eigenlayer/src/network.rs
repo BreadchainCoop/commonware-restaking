@@ -1,5 +1,6 @@
 use alloy_primitives::{Address, U256};
 use alloy_provider::Provider;
+use commonware_avs_bindings::interfaces::avs_threshold::IAvsThreshold;
 use commonware_avs_core::bn254::{G1PublicKey, PublicKey};
 use eigen_client_avsregistry::reader::AvsRegistryChainReader;
 use eigen_common::get_provider;
@@ -71,6 +72,7 @@ pub struct OperatorInfo {
 pub struct QuorumInfo {
     pub quorum_number: u8,
     pub operator_count: usize,
+    pub threshold: usize,
     pub total_stake: U256,
     pub operators: Vec<OperatorInfo>,
 }
@@ -81,6 +83,7 @@ pub struct EigenStakingClient {
     registry_coordinator_deploy_block: u64,
     operator_info_service: Arc<OperatorInfoServiceInMemory>,
     operator_state_retriever_address: Address,
+    service_manager_address: Address,
 }
 
 #[derive(Debug)]
@@ -140,6 +143,7 @@ impl EigenStakingClient {
         http_endpoint: String,
         ws_endpoint: String,
         avs_deployment_path: String,
+        service_manager_address: Address,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let config = Self::read_avs_deployment_config(&avs_deployment_path)?;
         let avs_registry_reader = AvsRegistryChainReader::new(
@@ -159,6 +163,7 @@ impl EigenStakingClient {
             registry_coordinator_deploy_block: config.deploy_block,
             operator_info_service: Arc::new(operator_info_service),
             operator_state_retriever_address: config.operator_state_retriever_address,
+            service_manager_address,
         })
     }
 
@@ -166,6 +171,11 @@ impl EigenStakingClient {
         // Query current block and backfill operator events
         let provider = get_provider(&self.http_endpoint);
         let current_block_number = provider.get_block_number().await?;
+
+        // Retrieve threshold from the AVS service manager contract.
+        let avs = IAvsThreshold::new(self.service_manager_address, provider.clone());
+        let quorum_threshold = avs.QUORUM_THRESHOLD().call().await?.to::<u64>();
+        let threshold_denominator = avs.THRESHOLD_DENOMINATOR().call().await?.to::<u64>();
         self.operator_info_service
             .query_past_registered_operator_events_and_fill_db(
                 self.registry_coordinator_deploy_block,
@@ -224,9 +234,15 @@ impl EigenStakingClient {
                 });
             }
 
+            let operator_count = operators.len() as u64;
+            // Ceiling division: ceil(operator_count * quorum_threshold / threshold_denominator)
+            let threshold = ((operator_count * quorum_threshold + threshold_denominator - 1)
+                / threshold_denominator) as usize;
+
             quorum_infos.push(QuorumInfo {
                 quorum_number: quorum_number as u8,
                 operator_count: operators.len(),
+                threshold,
                 total_stake,
                 operators: quorum_operators,
             });

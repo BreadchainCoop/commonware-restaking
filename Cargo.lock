@@ -2024,6 +2024,7 @@ version = "0.1.0"
 dependencies = [
  "alloy-primitives",
  "alloy-provider",
+ "commonware-avs-bindings",
  "commonware-avs-core",
  "eigen-client-avsregistry",
  "eigen-common",

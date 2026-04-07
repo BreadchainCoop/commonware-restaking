@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 alloy-primitives = { workspace = true }
 alloy-provider = { workspace = true }
+commonware-avs-bindings = { path = "../bindings" }
 commonware-avs-core = { path = "../core" }
 eigen-client-avsregistry = { workspace = true }
 eigen-common = { workspace = true }

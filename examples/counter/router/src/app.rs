@@ -51,8 +51,17 @@ async fn get_operator_states() -> Result<Vec<QuorumInfo>, Box<dyn std::error::Er
     let ws_rpc = env::var("WS_RPC").expect("WS_RPC must be set");
     let avs_deployment_path =
         env::var("AVS_DEPLOYMENT_PATH").expect("AVS_DEPLOYMENT_PATH must be set");
+    let service_manager_address = counter_common::config::CounterDeployment::load()
+        .and_then(|d| d.counter_address())
+        .expect("Failed to load counter address from deployment config");
     println!("pre init");
-    let client = EigenStakingClient::new(http_rpc, ws_rpc, avs_deployment_path).await?;
+    let client = EigenStakingClient::new(
+        http_rpc,
+        ws_rpc,
+        avs_deployment_path,
+        service_manager_address,
+    )
+    .await?;
     println!("init passed");
     client.get_operator_states().await
 }
@@ -195,8 +204,7 @@ pub fn main() {
             contributors_map.insert(verifier, verifier_g1);
         }
 
-        // Number of signatures required for aggregation (equal to operator_count — all operators must sign).
-        let threshold = quorum_infos[0].operator_count;
+        let threshold = quorum_infos[0].threshold;
 
         // Run as the orchestrator using the builder pattern
         const DEFAULT_MESSAGE_BACKLOG: usize = 256;
