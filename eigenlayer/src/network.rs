@@ -235,9 +235,8 @@ impl EigenStakingClient {
             }
 
             let operator_count = operators.len() as u64;
-            // Ceiling division: ceil(operator_count * quorum_threshold / threshold_denominator)
-            let threshold = ((operator_count * quorum_threshold + threshold_denominator - 1)
-                / threshold_denominator) as usize;
+            let threshold =
+                (operator_count * quorum_threshold).div_ceil(threshold_denominator) as usize;
 
             quorum_infos.push(QuorumInfo {
                 quorum_number: quorum_number as u8,
