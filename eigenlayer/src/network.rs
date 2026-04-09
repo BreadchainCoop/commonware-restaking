@@ -91,6 +91,8 @@ pub struct AvsDeploymentConfig {
     pub registry_coordinator_address: Address,
     pub deploy_block: u64,
     pub operator_state_retriever_address: Address,
+    pub service_manager_address: Address,
+    pub service_manager_is_wrapper: bool,
 }
 
 impl EigenStakingClient {
@@ -124,6 +126,26 @@ impl EigenStakingClient {
             .ok_or("Missing block_number in lastUpdate")?
             .parse::<u64>()?;
 
+        let (service_manager_address, service_manager_is_wrapper) =
+            if let Some(addr) = addresses.get("avsServiceManager").and_then(|v| v.as_str()) {
+                (
+                    addr.parse::<Address>()
+                        .map_err(|_| "Failed to parse service manager address")?,
+                    false,
+                )
+            } else if let Some(addr) = addresses
+                .get("avsServiceManagerWrapper")
+                .and_then(|v| v.as_str())
+            {
+                (
+                    addr.parse::<Address>()
+                        .map_err(|_| "Failed to parse service manager address")?,
+                    true,
+                )
+            } else {
+                return Err("Missing avsServiceManager or avsServiceManagerWrapper address".into());
+            };
+
         let registry_coordinator_address = registry_coordinator
             .parse::<Address>()
             .map_err(|_| "Failed to parse registry coordinator address")?;
@@ -136,6 +158,8 @@ impl EigenStakingClient {
             registry_coordinator_address,
             deploy_block,
             operator_state_retriever_address,
+            service_manager_address,
+            service_manager_is_wrapper,
         })
     }
 
@@ -143,7 +167,6 @@ impl EigenStakingClient {
         http_endpoint: String,
         ws_endpoint: String,
         avs_deployment_path: String,
-        service_manager_address: Address,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let config = Self::read_avs_deployment_config(&avs_deployment_path)?;
         let avs_registry_reader = AvsRegistryChainReader::new(
@@ -163,7 +186,7 @@ impl EigenStakingClient {
             registry_coordinator_deploy_block: config.deploy_block,
             operator_info_service: Arc::new(operator_info_service),
             operator_state_retriever_address: config.operator_state_retriever_address,
-            service_manager_address,
+            service_manager_address: config.service_manager_address,
         })
     }
 

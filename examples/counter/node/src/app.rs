@@ -102,16 +102,7 @@ async fn get_operator_states() -> Result<Vec<QuorumInfo>, Box<dyn std::error::Er
     let avs_deployment_path =
         env::var("AVS_DEPLOYMENT_PATH").expect("AVS_DEPLOYMENT_PATH must be set");
 
-    let service_manager_address = counter_common::config::CounterDeployment::load()
-        .and_then(|d| d.counter_address())
-        .expect("Failed to load counter address from deployment config");
-    let client = EigenStakingClient::new(
-        http_rpc,
-        ws_rpc,
-        avs_deployment_path,
-        service_manager_address,
-    )
-    .await?;
+    let client = EigenStakingClient::new(http_rpc, ws_rpc, avs_deployment_path).await?;
 
     client.get_operator_states().await
 }

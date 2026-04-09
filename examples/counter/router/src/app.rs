@@ -51,17 +51,8 @@ async fn get_operator_states() -> Result<Vec<QuorumInfo>, Box<dyn std::error::Er
     let ws_rpc = env::var("WS_RPC").expect("WS_RPC must be set");
     let avs_deployment_path =
         env::var("AVS_DEPLOYMENT_PATH").expect("AVS_DEPLOYMENT_PATH must be set");
-    let service_manager_address = counter_common::config::CounterDeployment::load()
-        .and_then(|d| d.counter_address())
-        .expect("Failed to load counter address from deployment config");
     println!("pre init");
-    let client = EigenStakingClient::new(
-        http_rpc,
-        ws_rpc,
-        avs_deployment_path,
-        service_manager_address,
-    )
-    .await?;
+    let client = EigenStakingClient::new(http_rpc, ws_rpc, avs_deployment_path).await?;
     println!("init passed");
     client.get_operator_states().await
 }

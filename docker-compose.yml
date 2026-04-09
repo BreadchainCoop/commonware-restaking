@@ -1,7 +1,7 @@
 services:
   ethereum:
     platform: linux/amd64
-    image: ghcr.io/breadchaincoop/ethereum:dev
+    image: ghcr.io/breadchaincoop/ethereum:latest
     env_file:
       - .env
     ports:
@@ -9,7 +9,7 @@ services:
 
   eigenlayer:
     platform: linux/amd64
-    image: ghcr.io/breadchaincoop/eigenlayer:dev
+    image: ghcr.io/breadchaincoop/eigenlayer:pr-bagelface-service-manager-wrapper
     depends_on:
       ethereum:
         condition: service_started
