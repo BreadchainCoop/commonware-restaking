@@ -1,6 +1,7 @@
 use alloy_primitives::{Address, U256};
 use alloy_provider::Provider;
 use commonware_avs_bindings::interfaces::avs_threshold::IAvsThreshold;
+use commonware_avs_bindings::interfaces::registry_coordinator::IRegistryCoordinator;
 use commonware_avs_core::bn254::{G1PublicKey, PublicKey};
 use eigen_client_avsregistry::reader::AvsRegistryChainReader;
 use eigen_common::get_provider;
@@ -83,7 +84,6 @@ pub struct EigenStakingClient {
     registry_coordinator_deploy_block: u64,
     operator_info_service: Arc<OperatorInfoServiceInMemory>,
     operator_state_retriever_address: Address,
-    service_manager_address: Address,
 }
 
 #[derive(Debug)]
@@ -91,8 +91,6 @@ pub struct AvsDeploymentConfig {
     pub registry_coordinator_address: Address,
     pub deploy_block: u64,
     pub operator_state_retriever_address: Address,
-    pub service_manager_address: Address,
-    pub service_manager_is_wrapper: bool,
 }
 
 impl EigenStakingClient {
@@ -126,26 +124,6 @@ impl EigenStakingClient {
             .ok_or("Missing block_number in lastUpdate")?
             .parse::<u64>()?;
 
-        let (service_manager_address, service_manager_is_wrapper) =
-            if let Some(addr) = addresses.get("avsServiceManager").and_then(|v| v.as_str()) {
-                (
-                    addr.parse::<Address>()
-                        .map_err(|_| "Failed to parse service manager address")?,
-                    false,
-                )
-            } else if let Some(addr) = addresses
-                .get("avsServiceManagerWrapper")
-                .and_then(|v| v.as_str())
-            {
-                (
-                    addr.parse::<Address>()
-                        .map_err(|_| "Failed to parse service manager address")?,
-                    true,
-                )
-            } else {
-                return Err("Missing avsServiceManager or avsServiceManagerWrapper address".into());
-            };
-
         let registry_coordinator_address = registry_coordinator
             .parse::<Address>()
             .map_err(|_| "Failed to parse registry coordinator address")?;
@@ -158,8 +136,6 @@ impl EigenStakingClient {
             registry_coordinator_address,
             deploy_block,
             operator_state_retriever_address,
-            service_manager_address,
-            service_manager_is_wrapper,
         })
     }
 
@@ -186,7 +162,6 @@ impl EigenStakingClient {
             registry_coordinator_deploy_block: config.deploy_block,
             operator_info_service: Arc::new(operator_info_service),
             operator_state_retriever_address: config.operator_state_retriever_address,
-            service_manager_address: config.service_manager_address,
         })
     }
 
@@ -195,8 +170,13 @@ impl EigenStakingClient {
         let provider = get_provider(&self.http_endpoint);
         let current_block_number = provider.get_block_number().await?;
 
+        // Retrieve service manager address from the registry coordinator contract.
+        let registry_coordinator =
+            IRegistryCoordinator::new(self.registry_coordinator_address, provider.clone());
+        let service_manager_address = registry_coordinator.serviceManager().call().await?;
+
         // Retrieve threshold from the AVS service manager contract.
-        let avs = IAvsThreshold::new(self.service_manager_address, provider.clone());
+        let avs = IAvsThreshold::new(service_manager_address, provider.clone());
         let quorum_threshold = avs.QUORUM_THRESHOLD().call().await?.to::<u64>();
         let threshold_denominator = avs.THRESHOLD_DENOMINATOR().call().await?.to::<u64>();
         self.operator_info_service
