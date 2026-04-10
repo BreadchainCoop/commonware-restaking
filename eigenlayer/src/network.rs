@@ -1,6 +1,6 @@
 use alloy_primitives::{Address, U256};
 use alloy_provider::Provider;
-use commonware_avs_bindings::interfaces::avs_threshold::IAvsThreshold;
+use commonware_avs_bindings::avs_service_manager_wrapper::AvsServiceManagerWrapper;
 use commonware_avs_core::bn254::{G1PublicKey, PublicKey};
 use eigen_client_avsregistry::reader::AvsRegistryChainReader;
 use eigen_common::get_provider;
@@ -196,7 +196,7 @@ impl EigenStakingClient {
         let current_block_number = provider.get_block_number().await?;
 
         // Retrieve threshold from the AVS service manager contract.
-        let avs = IAvsThreshold::new(self.service_manager_address, provider.clone());
+        let avs = AvsServiceManagerWrapper::new(self.service_manager_address, provider.clone());
         let quorum_threshold = avs.QUORUM_THRESHOLD().call().await?.to::<u64>();
         let threshold_denominator = avs.THRESHOLD_DENOMINATOR().call().await?.to::<u64>();
         self.operator_info_service

@@ -1,0 +1,88 @@
+[
+    {
+        "type": "constructor",
+        "inputs": [
+            {
+                "name": "_serviceManager",
+                "type": "address",
+                "internalType": "address"
+            },
+            {
+                "name": "_quorumThreshold",
+                "type": "uint256",
+                "internalType": "uint256"
+            },
+            {
+                "name": "_thresholdDenominator",
+                "type": "uint256",
+                "internalType": "uint256"
+            },
+            {
+                "name": "_blockStaleMeasure",
+                "type": "uint256",
+                "internalType": "uint256"
+            }
+        ],
+        "stateMutability": "nonpayable"
+    },
+    {
+        "type": "fallback",
+        "stateMutability": "payable"
+    },
+    {
+        "type": "receive",
+        "stateMutability": "payable"
+    },
+    {
+        "type": "function",
+        "name": "BLOCK_STALE_MEASURE",
+        "inputs": [],
+        "outputs": [
+            {
+                "name": "",
+                "type": "uint256",
+                "internalType": "uint256"
+            }
+        ],
+        "stateMutability": "view"
+    },
+    {
+        "type": "function",
+        "name": "QUORUM_THRESHOLD",
+        "inputs": [],
+        "outputs": [
+            {
+                "name": "",
+                "type": "uint256",
+                "internalType": "uint256"
+            }
+        ],
+        "stateMutability": "view"
+    },
+    {
+        "type": "function",
+        "name": "SERVICE_MANAGER",
+        "inputs": [],
+        "outputs": [
+            {
+                "name": "",
+                "type": "address",
+                "internalType": "contract IServiceManager"
+            }
+        ],
+        "stateMutability": "view"
+    },
+    {
+        "type": "function",
+        "name": "THRESHOLD_DENOMINATOR",
+        "inputs": [],
+        "outputs": [
+            {
+                "name": "",
+                "type": "uint256",
+                "internalType": "uint256"
+            }
+        ],
+        "stateMutability": "view"
+    }
+]

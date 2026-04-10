@@ -229,8 +229,8 @@ pub fn main() {
         use alloy_provider::ProviderBuilder;
         use alloy_signer_local::PrivateKeySigner;
         use std::str::FromStr;
-        use commonware_avs_bindings::blsapkregistry::BLSApkRegistry;
-        use commonware_avs_bindings::blssigcheckoperatorstateretriever::BLSSigCheckOperatorStateRetriever;
+        use commonware_avs_bindings::bls_apk_registry::BLSApkRegistry;
+        use commonware_avs_bindings::bls_sig_check_operator_state_retriever::BLSSigCheckOperatorStateRetriever;
         use commonware_avs_bindings::WalletProvider;
         use counter_common::config::CounterDeployment;
 

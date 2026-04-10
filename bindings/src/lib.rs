@@ -10,9 +10,9 @@
     dead_code
 )]
 
-pub mod blsapkregistry;
-pub mod blssigcheckoperatorstateretriever;
-pub mod interfaces;
+pub mod avs_service_manager_wrapper;
+pub mod bls_apk_registry;
+pub mod bls_sig_check_operator_state_retriever;
 
 use alloy::{network::Ethereum, network::EthereumWallet, providers::fillers::FillProvider};
 use alloy_provider::{

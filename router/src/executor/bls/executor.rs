@@ -14,8 +14,8 @@ use super::types::BlsVerificationData;
 use crate::executor::{ExecutionResult, VerificationData, VerificationExecutor};
 use commonware_avs_bindings::{
     ReadOnlyProvider,
-    blsapkregistry::BLSApkRegistry::BLSApkRegistryInstance,
-    blssigcheckoperatorstateretriever::{
+    bls_apk_registry::BLSApkRegistry::BLSApkRegistryInstance,
+    bls_sig_check_operator_state_retriever::{
         BLSSigCheckOperatorStateRetriever::{
             BLSSigCheckOperatorStateRetrieverInstance, getNonSignerStakesAndSignatureReturn,
         },
