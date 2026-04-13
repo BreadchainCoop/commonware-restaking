@@ -3,7 +3,7 @@ use crate::executor::bls::{BlsSignatureVerificationHandler, convert_non_signer_d
 use alloy_primitives::{Bytes, FixedBytes, U256};
 use anyhow::Result;
 use async_trait::async_trait;
-use commonware_avs_bindings::blssigcheckoperatorstateretriever::{
+use commonware_avs_bindings::bls_sig_check_operator_state_retriever::{
     BLSSigCheckOperatorStateRetriever::getNonSignerStakesAndSignatureReturn, BN254,
     IBLSSignatureCheckerTypes,
 };

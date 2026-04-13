@@ -1,11 +1,11 @@
-use commonware_avs_bindings::blssigcheckoperatorstateretriever::{
+use commonware_avs_bindings::bls_sig_check_operator_state_retriever::{
     BLSSigCheckOperatorStateRetriever::getNonSignerStakesAndSignatureReturn,
     BN254::{G1Point, G2Point},
     IBLSSignatureCheckerTypes,
 };
 
 /// Generic function to convert non-signer data from the operator state retriever format
-/// to a generic BLS signature checker format using the blssigcheckoperatorstateretriever bindings.
+/// to a generic BLS signature checker format using the bls_sig_check_operator_state_retriever bindings.
 /// This is generic BLS functionality that belongs in the BLS/EigenLayer executor.
 pub fn convert_non_signer_data(
     non_signer_data: getNonSignerStakesAndSignatureReturn,

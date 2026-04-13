@@ -5,7 +5,7 @@ use alloy::{
 use anyhow::Result;
 use async_trait::async_trait;
 use commonware_avs_bindings::WalletProvider;
-use commonware_avs_bindings::blssigcheckoperatorstateretriever::BLSSigCheckOperatorStateRetriever::getNonSignerStakesAndSignatureReturn;
+use commonware_avs_bindings::bls_sig_check_operator_state_retriever::BLSSigCheckOperatorStateRetriever::getNonSignerStakesAndSignatureReturn;
 use commonware_avs_router::executor::ExecutionResult;
 use commonware_avs_router::executor::bls::{
     BlsSignatureVerificationHandler, convert_non_signer_data,

@@ -116,7 +116,9 @@ pub fn main() {
         MAX_MESSAGE_SIZE,
     );
 
-    // Allow handshakes from IPs that aren't yet in the registered peer set
+    // Required in Kubernetes (or similar) environments because Kubernetes DNAT/SNAT makes IP-based admission filtering inherently non-functional
+    // Source IPs observed at the listener will always be pod IPs, never the Service IPs registered in the oracle.
+    // The setting should be kept enabled if the router is deployed in a Kubernetes (or similar) environment.
     p2p_cfg.attempt_unregistered_handshakes = true;
 
     // Start runtime
@@ -193,8 +195,7 @@ pub fn main() {
             contributors_map.insert(verifier, verifier_g1);
         }
 
-        // Infer threshold
-        let threshold = 3; //hardcoded for now
+        let threshold = quorum_infos[0].threshold;
 
         // Run as the orchestrator using the builder pattern
         const DEFAULT_MESSAGE_BACKLOG: usize = 256;
@@ -228,8 +229,8 @@ pub fn main() {
         use alloy_provider::ProviderBuilder;
         use alloy_signer_local::PrivateKeySigner;
         use std::str::FromStr;
-        use commonware_avs_bindings::blsapkregistry::BLSApkRegistry;
-        use commonware_avs_bindings::blssigcheckoperatorstateretriever::BLSSigCheckOperatorStateRetriever;
+        use commonware_avs_bindings::bls_apk_registry::BLSApkRegistry;
+        use commonware_avs_bindings::bls_sig_check_operator_state_retriever::BLSSigCheckOperatorStateRetriever;
         use commonware_avs_bindings::WalletProvider;
         use counter_common::config::CounterDeployment;
 
