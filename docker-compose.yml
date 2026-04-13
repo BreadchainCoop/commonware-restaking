@@ -9,7 +9,7 @@ services:
 
   eigenlayer:
     platform: linux/amd64
-    image: ghcr.io/breadchaincoop/eigenlayer:pr-bagelface-service-manager-wrapper
+    image: ghcr.io/breadchaincoop/eigenlayer:latest
     depends_on:
       ethereum:
         condition: service_started
