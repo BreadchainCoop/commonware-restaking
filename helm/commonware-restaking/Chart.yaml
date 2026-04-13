@@ -1,0 +1,13 @@
+apiVersion: v2
+name: commonware-restaking
+description: A Helm chart for deploying Commonware Restaking AVS with EigenLayer integration
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - commonware
+  - avs
+  - eigenlayer
+  - ethereum
+maintainers:
+  - name: Breadchain

@@ -1,0 +1,115 @@
+{{- if .Values.signer.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "commonware-avs.signer.fullname" . }}
+  labels:
+    {{- include "commonware-avs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: signer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "commonware-avs.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: signer
+  template:
+    metadata:
+      labels:
+        {{- include "commonware-avs.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: signer
+    spec:
+      initContainers:
+        # Wait for setup job to complete before starting signer
+        # Signer needs the operator keys created by the eigenlayer setup
+        - name: wait-for-setup
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for setup to complete..."
+              until [ -f /app/.nodes/.setup_complete ]; do
+                echo "Setup not complete, waiting for .setup_complete marker..."
+                sleep 10
+              done
+              echo "Setup complete! Starting signer..."
+          volumeMounts:
+            - name: shared-data
+              mountPath: /app/.nodes
+              readOnly: true
+      containers:
+        - name: signer
+          image: "{{ .Values.signer.image.repository }}:{{ .Values.signer.image.tag }}"
+          imagePullPolicy: {{ .Values.signer.image.pullPolicy }}
+          env:
+            - name: METRICS_PORT
+              value: {{ .Values.signer.service.metricsPort | quote }}
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.signer.service.grpcPort }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.signer.service.metricsPort }}
+              protocol: TCP
+          livenessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.signer.resources | nindent 12 }}
+
+      volumes:
+        - name: shared-data
+          persistentVolumeClaim:
+            claimName: {{ include "commonware-avs.shareddata.fullname" . }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "commonware-avs.signer.fullname" . }}
+  labels:
+    {{- include "commonware-avs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: signer
+spec:
+  type: {{ .Values.signer.service.type }}
+  ports:
+    - port: {{ .Values.signer.service.grpcPort }}
+      targetPort: grpc
+      protocol: TCP
+      name: grpc
+    - port: {{ .Values.signer.service.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  selector:
+    {{- include "commonware-avs.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: signer
+---
+# Alias service named "signer" for eigenlayer compatibility
+# The eigenlayer image expects to connect to signer:50051
+apiVersion: v1
+kind: Service
+metadata:
+  name: signer
+  labels:
+    {{- include "commonware-avs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: signer
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.signer.service.grpcPort }}
+      targetPort: grpc
+      protocol: TCP
+      name: grpc
+  selector:
+    {{- include "commonware-avs.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: signer
+{{- end }}

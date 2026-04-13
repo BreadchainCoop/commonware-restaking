@@ -1,0 +1,176 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "commonware-avs.router.fullname" . }}
+  labels:
+    {{- include "commonware-avs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: router
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "commonware-avs.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: router
+  template:
+    metadata:
+      labels:
+        {{- include "commonware-avs.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: router
+    spec:
+      initContainers:
+        # Wait for setup job to fully complete (check for .setup_complete marker)
+        - name: wait-for-setup
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for setup to complete..."
+              until [ -f /app/.nodes/.setup_complete ]; do
+                echo "Setup not complete, waiting for .setup_complete marker..."
+                sleep 10
+              done
+              echo "Setup complete! Contracts deployed and operators registered."
+          volumeMounts:
+            - name: shared-data
+              mountPath: /app/.nodes
+              readOnly: true
+
+        # Wait for ethereum RPC to be accessible
+        - name: wait-for-ethereum
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Ethereum RPC..."
+              until nc -z {{ include "commonware-avs.ethereum.fullname" . }} {{ .Values.ethereum.service.port }}; do
+                echo "Ethereum not ready, waiting..."
+                sleep 5
+              done
+              echo "Ethereum is ready!"
+
+        # Wait for nodes to be ready
+        - name: wait-for-nodes
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for nodes to be ready..."
+              {{- $nodeCount := int .Values.global.nodeCount }}
+              {{- range $i := until $nodeCount }}
+              {{- $nodeIndex := add $i 1 }}
+              {{- $nodePort := add (int $.Values.node.basePort) $i }}
+              until nc -z {{ include "commonware-avs.node.fullname" $ }}-{{ $nodeIndex }} {{ $nodePort }}; do
+                echo "Node {{ $nodeIndex }} not ready, waiting..."
+                sleep 5
+              done
+              echo "Node {{ $nodeIndex }} is ready!"
+              {{- end }}
+              echo "All nodes are ready!"
+
+        {{- if .Values.orchestrator.routerPrivateKey }}
+        # Create router_orchestrator.json from secret if provided
+        - name: setup-router-key
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo '{"privateKey":"'$ROUTER_KEY'"}' > /app/router_orchestrator.json
+              echo "Router orchestrator key file created from secret"
+          env:
+            - name: ROUTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "commonware-avs.secret.fullname" . }}
+                  key: ROUTER_ORCHESTRATOR_PRIVATE_KEY
+          volumeMounts:
+            - name: router-key
+              mountPath: /app
+        {{- end }}
+
+      containers:
+        - name: router
+          image: "{{ .Values.router.image.repository }}:{{ .Values.router.image.tag }}"
+          imagePullPolicy: {{ .Values.router.image.pullPolicy }}
+          args:
+            - "--key-file"
+            {{- if .Values.orchestrator.routerPrivateKey }}
+            - "/app/router_orchestrator.json"
+            {{- else }}
+            # Use the orchestrator key from the image if not provided via secret
+            - "/app/config/router_orchestrator.json"
+            {{- end }}
+            - "--port"
+            - {{ .Values.router.port | quote }}
+          env:
+            - name: HTTP_RPC
+              value: "http://{{ include "commonware-avs.ethereum.fullname" . }}:{{ .Values.ethereum.service.port }}"
+            - name: WS_RPC
+              value: "ws://{{ include "commonware-avs.ethereum.fullname" . }}:{{ .Values.ethereum.service.port }}"
+            - name: AVS_DEPLOYMENT_PATH
+              value: "/app/.nodes/avs_deploy.json"
+            - name: INGRESS
+              value: {{ .Values.router.ingress.enabled | quote }}
+            - name: INGRESS_TIMEOUT_MS
+              value: {{ .Values.router.ingress.timeoutMs | quote }}
+            - name: PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "commonware-avs.secret.fullname" . }}
+                  key: PRIVATE_KEY
+          ports:
+            - name: router
+              containerPort: {{ .Values.router.port }}
+              protocol: TCP
+            - name: ingress
+              containerPort: {{ .Values.router.ingressPort }}
+              protocol: TCP
+          # Note: No liveness/readiness probes on P2P ports
+          # TCP socket probes cause noisy "failed to upgrade connection" logs
+          # The router process will be restarted by Kubernetes if it crashes
+          volumeMounts:
+            - name: shared-data
+              mountPath: /app/.nodes
+              readOnly: true
+            {{- if .Values.orchestrator.routerPrivateKey }}
+            - name: router-key
+              mountPath: /app/router_orchestrator.json
+              subPath: router_orchestrator.json
+              readOnly: true
+            {{- end }}
+          resources:
+            {{- toYaml .Values.router.resources | nindent 12 }}
+
+      volumes:
+        - name: shared-data
+          persistentVolumeClaim:
+            claimName: {{ include "commonware-avs.shareddata.fullname" . }}
+        {{- if .Values.orchestrator.routerPrivateKey }}
+        - name: router-key
+          emptyDir: {}
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "commonware-avs.router.fullname" . }}
+  labels:
+    {{- include "commonware-avs.labels" . | nindent 4 }}
+    app.kubernetes.io/component: router
+spec:
+  type: {{ .Values.router.service.type }}
+  ports:
+    - port: {{ .Values.router.service.port }}
+      targetPort: router
+      protocol: TCP
+      name: router
+    - port: {{ .Values.router.service.ingressPort }}
+      targetPort: ingress
+      protocol: TCP
+      name: ingress
+  selector:
+    {{- include "commonware-avs.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: router

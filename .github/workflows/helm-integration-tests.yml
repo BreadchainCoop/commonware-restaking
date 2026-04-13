@@ -1,0 +1,452 @@
+name: Helm Integration Test
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+      - staging
+  pull_request:
+    branches:
+      - main
+      - dev
+      - staging
+
+jobs:
+  helm-test:
+    name: Test with Helm Charts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1.10.0
+        with:
+          cluster_name: commonware-test
+          wait: 120s
+          node_image: kindest/node:v1.27.3
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'latest'
+
+      - name: Build Docker images
+        run: |
+          echo "Building router image..."
+          docker build -f ./usecases/counter/router/Dockerfile -t commonware-avs-router:local .
+          
+          echo "Building node image..."
+          docker build -f ./usecases/counter/node/Dockerfile -t commonware-avs-node:local .
+
+      - name: Load images into kind cluster
+        run: |
+          echo "Loading router image into kind..."
+          kind load docker-image commonware-avs-router:local --name commonware-test
+          
+          echo "Loading node image into kind..."
+          kind load docker-image commonware-avs-node:local --name commonware-test
+
+      - name: Verify cluster is ready
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
+          kubectl get pods -A
+
+      - name: Install Helm chart
+        run: |
+          # Set fork URL from secret or use public Holesky
+          if [ -n "${{ secrets.RPC_URL }}" ]; then
+            FORK_URL="${{ secrets.RPC_URL }}"
+          else
+            FORK_URL="https://ethereum-holesky.publicnode.com"
+          fi
+
+          echo "Installing Helm chart with fork URL: $FORK_URL"
+          
+          # Install without --wait to avoid circular dependency
+          # (pods wait for setup job, setup job is post-install hook)
+          helm install commonware-avs ./helm/commonware-restaking \
+            --set global.environment=LOCAL \
+            --set global.nodeCount=3 \
+            --set secrets.forkUrl="${{ secrets.RPC_URL }}" \
+            --set secrets.privateKey="${{ secrets.PRIVATE_KEY }}" \
+            --set secrets.fundedKey="${{ secrets.FUNDED_KEY }}" \
+            --set node.image.repository=commonware-avs-node \
+            --set node.image.tag=local \
+            --set node.image.pullPolicy=Never \
+            --set router.image.repository=commonware-avs-router \
+            --set router.image.tag=local \
+            --set router.image.pullPolicy=Never \
+            --set sharedData.storageClass=""
+
+      - name: Check deployment status
+        run: |
+          echo "=== Helm Release Status ==="
+          helm status commonware-avs
+          
+          echo "=== All Pods ==="
+          kubectl get pods -o wide
+          
+          echo "=== All Services ==="
+          kubectl get services
+
+      - name: Wait for setup job to complete
+        run: |
+          echo "Waiting for setup job to complete..."
+          
+          # Find the actual setup job name (includes chart name)
+          SETUP_JOB=$(kubectl get jobs -o name | grep setup | head -1)
+          
+          if [ -z "$SETUP_JOB" ]; then
+            echo "Setup job not found!"
+            kubectl get jobs
+            exit 1
+          fi
+          
+          echo "Found setup job: $SETUP_JOB"
+          kubectl wait --for=condition=complete "$SETUP_JOB" --timeout=300s
+          
+          echo "Setup job completed successfully"
+          kubectl logs "$SETUP_JOB" --tail=30
+
+      - name: Wait for all pods to be ready
+        run: |
+          echo "Waiting for ethereum pod..."
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=ethereum --timeout=180s
+          
+          echo "Waiting for signer pod..."
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=signer --timeout=180s
+          
+          echo "Waiting for node pods..."
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=node --timeout=300s
+          
+          echo "Waiting for router pod..."
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=router --timeout=300s
+          
+          echo "All pods are ready!"
+
+      - name: Setup port forwarding for testing
+        run: |
+          # Find actual service names (they include the chart name)
+          ETHEREUM_SERVICE=$(kubectl get services -o name | grep ethereum | head -1 | sed 's|service/||')
+          ROUTER_SERVICE=$(kubectl get services -o name | grep router | head -1 | sed 's|service/||')
+          
+          echo "Ethereum service: $ETHEREUM_SERVICE"
+          echo "Router service: $ROUTER_SERVICE"
+          
+          # Port forward ethereum RPC
+          kubectl port-forward service/$ETHEREUM_SERVICE 8545:8545 &
+          
+          # Port forward router ingress
+          kubectl port-forward service/$ROUTER_SERVICE 8080:8080 &
+          
+          # Wait for port forwards to be ready
+          sleep 10
+          
+          echo "Port forwarding established"
+
+      - name: Verify shared data was created
+        run: |
+          echo "Checking if setup job created the required files..."
+          
+          # Get the setup job pod name
+          SETUP_POD=$(kubectl get pods -l app.kubernetes.io/component=setup -o jsonpath='{.items[0].metadata.name}')
+          
+          echo "Setup pod: $SETUP_POD"
+          
+          # Check PVC
+          kubectl get pvc
+          
+          echo "Setup job logs:"
+          kubectl logs $SETUP_POD || true
+
+      - name: Test counter increment functionality
+        run: |
+          echo "Testing counter increment..."
+          
+          # Wait for services to be fully ready
+          sleep 20
+          
+          # Get the counter contract address from router pod
+          ROUTER_POD=$(kubectl get pods -l app.kubernetes.io/component=router -o jsonpath='{.items[0].metadata.name}')
+          
+          # Copy avs_deploy.json from router pod
+          kubectl cp $ROUTER_POD:/app/.nodes/avs_deploy.json ./avs_deploy.json
+          
+          if [ ! -f "./avs_deploy.json" ]; then
+            echo "AVS deployment file not found"
+            exit 1
+          fi
+          
+          cat ./avs_deploy.json
+          
+          COUNTER_ADDRESS=$(cat ./avs_deploy.json | jq -r '.addresses.counter' || echo "")
+          if [ -z "$COUNTER_ADDRESS" ]; then
+            echo "Counter contract address not found in deployment file"
+            cat ./avs_deploy.json
+            exit 1
+          fi
+          echo "Counter contract address: $COUNTER_ADDRESS"
+          
+          # Read the initial counter value from the smart contract
+          # The function signature for "number()" is 0x8381f58a
+          INITIAL_COUNT=$(curl -s -X POST http://localhost:8545 \
+            -H "Content-Type: application/json" \
+            -d '{
+              "jsonrpc":"2.0",
+              "method":"eth_call",
+              "params":[{
+                "to":"'$COUNTER_ADDRESS'",
+                "data":"0x8381f58a"
+              }, "latest"],
+              "id":1
+            }' | jq -r '.result' | xargs printf "%d\n")
+          
+          echo "Initial counter value: $INITIAL_COUNT"
+          echo "INITIAL_COUNT=$INITIAL_COUNT" >> $GITHUB_ENV
+          echo "COUNTER_ADDRESS=$COUNTER_ADDRESS" >> $GITHUB_ENV
+          
+          # Wait for 5 aggregation cycles (30 seconds each by default = 150 seconds)
+          echo "Waiting for 5 aggregation cycles (150 seconds)..."
+          sleep 150
+          
+          # Read the final counter value from the smart contract
+          FINAL_COUNT=$(curl -s -X POST http://localhost:8545 \
+            -H "Content-Type: application/json" \
+            -d '{
+              "jsonrpc":"2.0",
+              "method":"eth_call",
+              "params":[{
+                "to":"'$COUNTER_ADDRESS'",
+                "data":"0x8381f58a"
+              }, "latest"],
+              "id":1
+            }' | jq -r '.result' | xargs printf "%d\n")
+          
+          echo "Final counter value: $FINAL_COUNT"
+          
+          # Verify increment
+          if [ "$FINAL_COUNT" -gt "$INITIAL_COUNT" ]; then
+            echo "✓ Counter successfully incremented from $INITIAL_COUNT to $FINAL_COUNT"
+            echo "LAST_COUNT=$FINAL_COUNT" >> $GITHUB_ENV
+          else
+            echo "✗ Counter did not increment (still at $FINAL_COUNT)"
+            echo "=== Recent router logs ==="
+            kubectl logs -l app.kubernetes.io/component=router --tail 50
+            exit 1
+          fi
+
+      - name: Test with fast aggregation frequency
+        run: |
+          echo "Testing with fast aggregation frequency (0.5 seconds)..."
+          
+          # Find the actual router deployment name (includes chart name)
+          ROUTER_DEPLOYMENT=$(kubectl get deployments -o name | grep router | head -1 | sed 's|deployment.apps/||')
+          echo "Router deployment: $ROUTER_DEPLOYMENT"
+          
+          # Update router deployment with fast aggregation - DISABLE INGRESS to avoid timeout crashes
+          kubectl set env deployment/$ROUTER_DEPLOYMENT INGRESS=false AGGREGATION_FREQUENCY=0.5
+          
+          # Wait for rollout
+          kubectl rollout status deployment/$ROUTER_DEPLOYMENT --timeout=120s
+          
+          # Re-establish port forwarding
+          pkill -f "port-forward.*8545" || true
+          pkill -f "port-forward.*8080" || true
+          sleep 5
+          
+          # Find service names
+          ETHEREUM_SERVICE=$(kubectl get services -o name | grep ethereum | head -1 | sed 's|service/||')
+          ROUTER_SERVICE=$(kubectl get services -o name | grep router | head -1 | sed 's|service/||')
+          
+          kubectl port-forward service/$ETHEREUM_SERVICE 8545:8545 &
+          kubectl port-forward service/$ROUTER_SERVICE 8080:8080 &
+          
+          # Wait for router to fully initialize P2P connections (takes ~15-20 seconds)
+          echo "Waiting for router to establish P2P connections..."
+          sleep 20
+          
+          # Get the starting counter value from previous step
+          START_COUNT=${{ env.LAST_COUNT }}
+          echo "Starting counter value: $START_COUNT"
+          
+          # Wait for 1 minute with fast aggregation (0.5 seconds each cycle)
+          echo "Waiting for 1 minute with fast aggregation..."
+          sleep 60
+          
+          # Read the counter value after fast aggregation
+          FAST_COUNT=$(curl -s -X POST http://localhost:8545 \
+            -H "Content-Type: application/json" \
+            -d '{
+              "jsonrpc":"2.0",
+              "method":"eth_call",
+              "params":[{
+                "to":"'${{ env.COUNTER_ADDRESS }}'",
+                "data":"0x8381f58a"
+              }, "latest"],
+              "id":1
+            }' | jq -r '.result' | xargs printf "%d\n")
+          
+          echo "Counter value after fast aggregation: $FAST_COUNT"
+          
+          # Verify fast aggregation worked (should have multiple increments)
+          if [ "$FAST_COUNT" -gt "$START_COUNT" ]; then
+            INCREMENTS=$((FAST_COUNT - START_COUNT))
+            echo "✓ Fast aggregation successful: $INCREMENTS increments in 1 minute"
+            echo "LAST_COUNT=$FAST_COUNT" >> $GITHUB_ENV
+          else
+            echo "✗ Fast aggregation failed (counter still at $FAST_COUNT)"
+            kubectl logs -l app.kubernetes.io/component=router --tail 50
+            exit 1
+          fi
+
+      - name: Test with ingress enabled
+        run: |
+          echo "Testing with ingress enabled..."
+          
+          # Find the actual router deployment name (includes chart name)
+          ROUTER_DEPLOYMENT=$(kubectl get deployments -o name | grep router | head -1 | sed 's|deployment.apps/||')
+          echo "Router deployment: $ROUTER_DEPLOYMENT"
+          
+          # Update router deployment with ingress enabled
+          kubectl set env deployment/$ROUTER_DEPLOYMENT INGRESS=true
+          
+          # Wait for rollout
+          kubectl rollout status deployment/$ROUTER_DEPLOYMENT --timeout=120s
+          
+          # Re-establish port forwarding
+          pkill -f "port-forward.*8545" || true
+          pkill -f "port-forward.*8080" || true
+          sleep 5
+          
+          # Find service names
+          ETHEREUM_SERVICE=$(kubectl get services -o name | grep ethereum | head -1 | sed 's|service/||')
+          ROUTER_SERVICE=$(kubectl get services -o name | grep router | head -1 | sed 's|service/||')
+          
+          kubectl port-forward service/$ETHEREUM_SERVICE 8545:8545 &
+          kubectl port-forward service/$ROUTER_SERVICE 8080:8080 &
+          sleep 15
+          
+          # Get the starting counter value from previous step
+          START_COUNT=${{ env.LAST_COUNT }}
+          echo "Starting counter value: $START_COUNT"
+          
+          # Send ingress requests to trigger increments
+          echo "Sending ingress requests to /trigger endpoint..."
+          for i in {1..5}; do
+            echo "=== Sending ingress request $i ==="
+            RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST http://localhost:8080/trigger \
+              -H "Content-Type: application/json" \
+              -d '{"body": {"metadata": {"request_id": "'$i'", "action": "increment"}}}')
+            HTTP_STATUS=$(echo "$RESPONSE" | tail -n 1 | cut -d: -f2)
+            BODY=$(echo "$RESPONSE" | head -n -1)
+            echo "Response: $BODY"
+            echo "HTTP Status: $HTTP_STATUS"
+            
+            if [ "$HTTP_STATUS" != "200" ]; then
+              echo "Warning: HTTP request failed with status $HTTP_STATUS"
+            fi
+            sleep 1
+          done
+          
+          # Wait for aggregation to process the ingress requests
+          echo "Waiting for aggregation to process ingress requests..."
+          sleep 15
+          
+          # Read the counter value after ingress
+          COUNTER_ADDR="${{ env.COUNTER_ADDRESS }}"
+          COUNTER_RESPONSE=$(curl -s -X POST http://localhost:8545 \
+            -H "Content-Type: application/json" \
+            -d '{
+              "jsonrpc":"2.0",
+              "method":"eth_call",
+              "params":[{
+                "to":"'$COUNTER_ADDR'",
+                "data":"0x8381f58a"
+              }, "latest"],
+              "id":1
+            }')
+          
+          COUNTER_HEX=$(echo "$COUNTER_RESPONSE" | jq -r '.result')
+          
+          # Handle empty or invalid response
+          if [ -z "$COUNTER_HEX" ] || [ "$COUNTER_HEX" = "null" ] || [ "$COUNTER_HEX" = "0x" ]; then
+            echo "Warning: Invalid counter response, defaulting to 0"
+            INGRESS_COUNT=0
+          else
+            INGRESS_COUNT=$(printf "%d\n" "$COUNTER_HEX" 2>/dev/null || echo "0")
+          fi
+          
+          echo "Counter value after ingress: $INGRESS_COUNT"
+          
+          # Verify ingress increments worked
+          if [ "$INGRESS_COUNT" -gt "$START_COUNT" ]; then
+            INCREMENTS=$((INGRESS_COUNT - START_COUNT))
+            echo "✓ Ingress test successful: $INCREMENTS increments after ingress requests"
+          else
+            echo "✗ Ingress test failed (counter still at $INGRESS_COUNT)"
+            kubectl logs -l app.kubernetes.io/component=router --tail 50
+            exit 1
+          fi
+          
+          # Final summary
+          echo "=== Test Summary ==="
+          echo "Initial count: ${{ env.INITIAL_COUNT }}"
+          echo "After default aggregation (5 cycles @ 30s): ${{ env.LAST_COUNT }}"
+          echo "After fast aggregation: $FAST_COUNT"
+          echo "After ingress requests (5 requests): $INGRESS_COUNT"
+          echo "Total increments: $((INGRESS_COUNT - ${{ env.INITIAL_COUNT }}))"
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          echo "=== Helm Status ==="
+          helm status commonware-avs || true
+          
+          echo "=== All Pods Status ==="
+          kubectl get pods -o wide
+          
+          echo "=== PVC Status ==="
+          kubectl get pvc
+          
+          echo "=== Events ==="
+          kubectl get events --sort-by=.metadata.creationTimestamp
+          
+          echo "=== Ethereum Logs ==="
+          kubectl logs -l app.kubernetes.io/component=ethereum --tail 50 || true
+          
+          echo "=== Setup Job Logs ==="
+          kubectl logs -l app.kubernetes.io/component=setup --tail 100 || true
+          
+          echo "=== Router Logs ==="
+          kubectl logs -l app.kubernetes.io/component=router --tail 100 || true
+          
+          echo "=== Node-1 Logs ==="
+          NODE1_POD=$(kubectl get pods -l commonware-avs/node-index=1 -o jsonpath='{.items[0].metadata.name}')
+          kubectl logs $NODE1_POD --tail 100 || true
+          
+          echo "=== Node-2 Logs ==="
+          NODE2_POD=$(kubectl get pods -l commonware-avs/node-index=2 -o jsonpath='{.items[0].metadata.name}')
+          kubectl logs $NODE2_POD --tail 100 || true
+          
+          echo "=== Node-3 Logs ==="
+          NODE3_POD=$(kubectl get pods -l commonware-avs/node-index=3 -o jsonpath='{.items[0].metadata.name}')
+          kubectl logs $NODE3_POD --tail 100 || true
+
+      - name: Cleanup
+        if: always()
+        run: |
+          # Kill port forwarding
+          pkill -f "port-forward" || true
+          
+          # Uninstall helm release
+          helm uninstall commonware-avs || true
+          
+          # Delete the kind cluster
+          kind delete cluster --name commonware-test || true
