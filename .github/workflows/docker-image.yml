@@ -18,6 +18,10 @@ env:
   REGISTRY: ghcr.io
   ORG: breadchaincoop
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   docker:
     strategy:
