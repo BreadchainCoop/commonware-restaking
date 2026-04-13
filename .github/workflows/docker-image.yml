@@ -6,11 +6,6 @@ on:
       - main
       - dev
       - staging
-  pull_request:
-    branches:
-      - main
-      - dev
-      - staging
   release:
     types: [created]
 
