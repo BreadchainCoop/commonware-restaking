@@ -11,13 +11,18 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  ORG: breadchaincoop
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   docker:
     strategy:
       matrix:
         arch: [amd64, arm64]
+        target: [node, router]
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
@@ -28,23 +33,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Convert repository name to lowercase
-        id: repo
-        run: echo "name=$(echo ${{ env.IMAGE_NAME }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
-
       - name: Build and push (per-arch)
         uses: docker/build-push-action@v5
         with:
           context: .
+          file: examples/counter/${{ matrix.target }}/Dockerfile
           platforms: linux/${{ matrix.arch }}
           push: true
-          tags: ${{ env.REGISTRY }}/${{ steps.repo.outputs.name }}:${{ matrix.arch }}-${{ github.sha }}
-          cache-from: type=gha,scope=${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+          tags: ${{ env.REGISTRY }}/${{ env.ORG }}/commonware-restaking-${{ matrix.target }}:${{ matrix.arch }}-${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.target }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target }}-${{ matrix.arch }}
 
   manifest:
     needs: docker
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [node, router]
     steps:
       - uses: docker/login-action@v3
         with:
@@ -66,8 +71,7 @@ jobs:
       - name: Create and push multi-arch manifest
         shell: bash
         run: |
-          NAME="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
-          NAME="${NAME,,}"
+          NAME="${{ env.REGISTRY }}/${{ env.ORG }}/commonware-restaking-${{ matrix.target }}"
           TAG_PRIMARY="${{ steps.vars.outputs.channel_tag }}"
           TAG_WITH_SHA="${TAG_PRIMARY}-${{ steps.vars.outputs.short_sha }}"
 
