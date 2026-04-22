@@ -303,6 +303,9 @@ where
                                 );
                             }
                         }
+
+                        // Prevents additional signatures after threshold from re-triggering execution on an already-completed round.
+                        break;
                     },
                 }
             }
