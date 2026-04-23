@@ -265,7 +265,7 @@ where
                         // Aggregate signatures
                         let mut participating = Vec::new();
                         let mut participating_g1 = Vec::new();
-                        let mut signatures = Vec::new();
+                        let mut agg_signatures = Vec::new();
                         for i in 0..self.contributors.len() {
                             let Some(signature) = round.get(&i) else {
                                 continue;
@@ -274,9 +274,9 @@ where
                             let g1_pubkey : G1PublicKey= self.g1_map[contributor].clone();
                             participating_g1.push(g1_pubkey.clone());
                             participating.push(contributor.clone());
-                            signatures.push(signature.clone());
+                            agg_signatures.push(signature.clone());
                         }
-                        let agg_signature = aggregate_signatures(&signatures).unwrap();
+                        let agg_signature = aggregate_signatures(&agg_signatures).unwrap();
 
                         // Verify aggregated signature (already verified individual signatures so should never fail)
                         if !aggregate_verify(&participating, None, &expected_digest, &agg_signature) {
@@ -285,7 +285,7 @@ where
 
                         // Execute verification with the aggregated signature
                         // Serialize BLS-specific types to bytes for generic VerificationData
-                        let serialized_signatures: Vec<Vec<u8>> = signatures.iter().map(|s| s.to_vec()).collect();
+                        let serialized_signatures: Vec<Vec<u8>> = agg_signatures.iter().map(|s| s.to_vec()).collect();
                         let serialized_public_keys: Vec<Vec<u8>> = participating.iter().map(|pk| pk.to_vec()).collect();
 
                         // Serialize G1 public keys to context
@@ -318,8 +318,14 @@ where
                             }
                         }
 
+                        // Drop per-round signature state now that this round has finished.
+                        signatures.remove(&msg.round);
                         // Mark round complete so additional signatures are ignored and the outer
                         // loop does not re-broadcast Start while waiting for on-chain state to advance.
+                        //
+                        // Rounds advance monotonically, so only the latest executed round needs to
+                        // be retained to suppress duplicate processing without unbounded growth.
+                        executed_rounds.clear();
                         executed_rounds.insert(msg.round);
                     },
                 }
