@@ -152,6 +152,14 @@ where
         *self.execution_count.lock().unwrap()
     }
 
+    /// Returns a shared handle to the execution counter.
+    ///
+    /// Callers can clone this before moving the executor into the orchestrator
+    /// and read the count from outside after execution.
+    pub fn execution_count_handle(&self) -> Arc<Mutex<u64>> {
+        self.execution_count.clone()
+    }
+
     /// Resets the execution count to zero.
     ///
     /// This method is useful for testing to reset the counter

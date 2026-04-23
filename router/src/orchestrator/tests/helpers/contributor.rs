@@ -4,6 +4,29 @@ use commonware_cryptography::Signer;
 use std::collections::HashMap;
 use std::str::FromStr;
 
+/// Like `create_test_contributors` but also returns the signers so tests can produce
+/// valid BLS signatures over a known digest.
+pub fn create_test_contributors_with_signers()
+-> (Vec<PublicKey>, HashMap<PublicKey, G1PublicKey>, Vec<Bn254>) {
+    let mut contributors = Vec::new();
+    let mut g1_map = HashMap::new();
+    let mut signers = Vec::new();
+
+    for i in 0..3 {
+        let fr = Fr::from_str(&format!("{}", i + 1000)).expect("Failed to create test Fr");
+        let private_key = PrivateKey::from(fr);
+        let signer = Bn254::new(private_key).expect("Failed to create contributor signer");
+        let pub_key = signer.public_key();
+        let g1_pub_key = signer.public_g1();
+
+        contributors.push(pub_key.clone());
+        g1_map.insert(pub_key, g1_pub_key);
+        signers.push(signer);
+    }
+
+    (contributors, g1_map, signers)
+}
+
 /// Helper function to create test contributors for testing purposes.
 ///
 /// This function creates a set of test contributors with their

@@ -11,7 +11,10 @@ use commonware_macros::select;
 use commonware_p2p::{Receiver, Sender};
 use commonware_runtime::Clock;
 use commonware_utils::hex;
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Duration,
+};
 use tracing::info;
 
 use crate::creator::Creator;
@@ -125,6 +128,7 @@ where
         mut receiver: impl Receiver<PublicKey = PublicKey>,
     ) {
         let mut signatures = HashMap::new();
+        let mut executed_rounds: HashSet<u64> = HashSet::new();
 
         loop {
             let (payload, current_round) = self.task_creator.get_payload_and_round().await.unwrap();
@@ -138,6 +142,18 @@ where
                 msg = hex(&payload),
                 "generated payload for state"
             );
+
+            // Skip broadcasting for already-executed rounds, but keep servicing the receiver
+            // so late signatures/messages for completed rounds do not build up in the buffer.
+            if executed_rounds.contains(&current_round) {
+                select! {
+                    _ = self.runtime.sleep(Duration::from_secs(2)) => {},
+                    received = receiver.recv() => {
+                        let _ = received;
+                    },
+                }
+                continue;
+            }
 
             // Broadcast payload
             let task_data = self.task_creator.get_task_metadata();
@@ -186,6 +202,10 @@ where
                             info!("Failed to decode message from sender: {:?}", sender);
                             continue;
                         };
+                        if executed_rounds.contains(&msg.round) {
+                            info!("Ignoring signature for already-executed round: {} from contributor: {:?}", msg.round, contributor);
+                            continue;
+                        }
                         let Some(round) = signatures.get_mut(&msg.round) else {
                             info!("Received signature for unknown round: {} from contributor: {:?}", msg.round, contributor);
                             continue;
@@ -251,7 +271,7 @@ where
                         // Aggregate signatures
                         let mut participating = Vec::new();
                         let mut participating_g1 = Vec::new();
-                        let mut signatures = Vec::new();
+                        let mut agg_signatures = Vec::new();
                         for i in 0..self.contributors.len() {
                             let Some(signature) = round.get(&i) else {
                                 continue;
@@ -260,9 +280,9 @@ where
                             let g1_pubkey : G1PublicKey= self.g1_map[contributor].clone();
                             participating_g1.push(g1_pubkey.clone());
                             participating.push(contributor.clone());
-                            signatures.push(signature.clone());
+                            agg_signatures.push(signature.clone());
                         }
-                        let agg_signature = aggregate_signatures(&signatures).unwrap();
+                        let agg_signature = aggregate_signatures(&agg_signatures).unwrap();
 
                         // Verify aggregated signature (already verified individual signatures so should never fail)
                         if !aggregate_verify(&participating, None, &expected_digest, &agg_signature) {
@@ -271,7 +291,7 @@ where
 
                         // Execute verification with the aggregated signature
                         // Serialize BLS-specific types to bytes for generic VerificationData
-                        let serialized_signatures: Vec<Vec<u8>> = signatures.iter().map(|s| s.to_vec()).collect();
+                        let serialized_signatures: Vec<Vec<u8>> = agg_signatures.iter().map(|s| s.to_vec()).collect();
                         let serialized_public_keys: Vec<Vec<u8>> = participating.iter().map(|pk| pk.to_vec()).collect();
 
                         // Serialize G1 public keys to context
@@ -294,6 +314,15 @@ where
                                     "Successfully executed verification with aggregated signature. Result: {:?}",
                                     result
                                 );
+                                // Drop per-round signature state now that this round has finished.
+                                signatures.remove(&msg.round);
+                                // Mark round complete so additional signatures are ignored and the outer
+                                // loop does not re-broadcast Start while waiting for on-chain state to advance.
+                                //
+                                // Rounds advance monotonically, so only the latest executed round needs to
+                                // be retained to suppress duplicate processing without unbounded growth.
+                                executed_rounds.clear();
+                                executed_rounds.insert(msg.round);
                             },
                             Err(e) => {
                                 info!(
@@ -301,6 +330,8 @@ where
                                     "Failed to execute verification with aggregated signature: {:?}",
                                     e
                                 );
+                                // Leave the round open so a subsequent signature above threshold
+                                // can retrigger execution.
                             }
                         }
                     },
