@@ -314,6 +314,15 @@ where
                                     "Successfully executed verification with aggregated signature. Result: {:?}",
                                     result
                                 );
+                                // Drop per-round signature state now that this round has finished.
+                                signatures.remove(&msg.round);
+                                // Mark round complete so additional signatures are ignored and the outer
+                                // loop does not re-broadcast Start while waiting for on-chain state to advance.
+                                //
+                                // Rounds advance monotonically, so only the latest executed round needs to
+                                // be retained to suppress duplicate processing without unbounded growth.
+                                executed_rounds.clear();
+                                executed_rounds.insert(msg.round);
                             },
                             Err(e) => {
                                 info!(
@@ -321,18 +330,10 @@ where
                                     "Failed to execute verification with aggregated signature: {:?}",
                                     e
                                 );
+                                // Leave the round open so a subsequent signature above threshold
+                                // can retrigger execution.
                             }
                         }
-
-                        // Drop per-round signature state now that this round has finished.
-                        signatures.remove(&msg.round);
-                        // Mark round complete so additional signatures are ignored and the outer
-                        // loop does not re-broadcast Start while waiting for on-chain state to advance.
-                        //
-                        // Rounds advance monotonically, so only the latest executed round needs to
-                        // be retained to suppress duplicate processing without unbounded growth.
-                        executed_rounds.clear();
-                        executed_rounds.insert(msg.round);
                     },
                 }
             }
