@@ -143,9 +143,15 @@ where
                 "generated payload for state"
             );
 
-            // Skip broadcasting for already-executed rounds; poll on a short interval until next round.
+            // Skip broadcasting for already-executed rounds, but keep servicing the receiver
+            // so late signatures/messages for completed rounds do not build up in the buffer.
             if executed_rounds.contains(&current_round) {
-                self.runtime.sleep(Duration::from_secs(2)).await;
+                select! {
+                    _ = self.runtime.sleep(Duration::from_secs(2)) => {},
+                    received = receiver.recv() => {
+                        let _ = received;
+                    },
+                }
                 continue;
             }
 
