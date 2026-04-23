@@ -11,7 +11,7 @@ use commonware_macros::select;
 use commonware_p2p::{Receiver, Sender};
 use commonware_runtime::Clock;
 use commonware_utils::hex;
-use std::{collections::HashMap, time::Duration};
+use std::{collections::{HashMap, HashSet}, time::Duration};
 use tracing::info;
 
 use crate::creator::Creator;
@@ -125,6 +125,7 @@ where
         mut receiver: impl Receiver<PublicKey = PublicKey>,
     ) {
         let mut signatures = HashMap::new();
+        let mut executed_rounds: HashSet<u64> = HashSet::new();
 
         loop {
             let (payload, current_round) = self.task_creator.get_payload_and_round().await.unwrap();
@@ -138,6 +139,13 @@ where
                 msg = hex(&payload),
                 "generated payload for state"
             );
+
+            // Skip broadcasting for already-executed rounds
+            if executed_rounds.contains(&current_round) {
+                let continue_time = self.runtime.current() + self.aggregation_frequency;
+                self.runtime.sleep_until(continue_time).await;
+                continue;
+            }
 
             // Broadcast payload
             let task_data = self.task_creator.get_task_metadata();
@@ -186,6 +194,10 @@ where
                             info!("Failed to decode message from sender: {:?}", sender);
                             continue;
                         };
+                        if executed_rounds.contains(&msg.round) {
+                            info!("Ignoring signature for already-executed round: {} from contributor: {:?}", msg.round, contributor);
+                            continue;
+                        }
                         let Some(round) = signatures.get_mut(&msg.round) else {
                             info!("Received signature for unknown round: {} from contributor: {:?}", msg.round, contributor);
                             continue;
@@ -304,8 +316,9 @@ where
                             }
                         }
 
-                        // Prevents additional signatures after threshold from re-triggering execution on an already-completed round.
-                        break;
+                        // Mark round complete so additional signatures are ignored and the outer
+                        // loop does not re-broadcast Start while waiting for on-chain state to advance.
+                        executed_rounds.insert(msg.round);
                     },
                 }
             }
