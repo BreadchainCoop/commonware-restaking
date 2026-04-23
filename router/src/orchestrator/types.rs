@@ -140,10 +140,9 @@ where
                 "generated payload for state"
             );
 
-            // Skip broadcasting for already-executed rounds
+            // Skip broadcasting for already-executed rounds; poll on a short interval until next round.
             if executed_rounds.contains(&current_round) {
-                let continue_time = self.runtime.current() + self.aggregation_frequency;
-                self.runtime.sleep_until(continue_time).await;
+                self.runtime.sleep(Duration::from_secs(2)).await;
                 continue;
             }
 
