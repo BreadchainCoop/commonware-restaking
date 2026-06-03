@@ -323,6 +323,12 @@ where
                                 // be retained to suppress duplicate processing without unbounded growth.
                                 executed_rounds.clear();
                                 executed_rounds.insert(msg.round);
+                                // Return to the outer loop immediately so the next queued task is
+                                // fetched without waiting out `aggregation_frequency`. A chain-polling
+                                // creator that re-returns this same round is debounced by the
+                                // `executed_rounds` 2s-sleep branch at the top of the outer loop;
+                                // a queue/channel creator gets a fresh round and broadcasts at once.
+                                break;
                             },
                             Err(e) => {
                                 info!(
