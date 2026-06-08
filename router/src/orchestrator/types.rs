@@ -13,12 +13,13 @@ use commonware_runtime::Clock;
 use commonware_utils::hex;
 use std::{
     collections::{HashMap, HashSet},
+    marker::PhantomData,
     time::Duration,
 };
 use tracing::info;
 
 use crate::creator::Creator;
-use crate::executor::{VerificationData, VerificationExecutor};
+use crate::executor::{FromBlsAggregation, VerificationData, VerificationExecutor};
 use crate::orchestrator::traits::OrchestratorTrait;
 
 /// Configuration for the generic orchestrator
@@ -42,12 +43,14 @@ pub struct OrchestratorConfig {
 /// * `E` - Executor implementation that implements `VerificationExecutor`
 /// * `V` - Validator implementation that implements `ValidatorTrait`
 /// * `C` - Clock implementation that implements `Clock`
-pub struct Orchestrator<TC, E, V, C>
+/// * `VD` - Verification-data container the executor consumes (defaults to `VerificationData`)
+pub struct Orchestrator<TC, E, V, C, VD = VerificationData>
 where
     TC: Creator,
-    E: VerificationExecutor<TC::TaskData, VerificationData>,
+    E: VerificationExecutor<TC::TaskData, VD>,
     V: ValidatorTrait,
     C: Clock,
+    VD: FromBlsAggregation + Send + Sync,
 {
     runtime: C,
     #[allow(dead_code)]
@@ -60,14 +63,16 @@ where
     task_creator: TC,
     executor: E,
     validator: V,
+    _verification_data: PhantomData<fn() -> VD>,
 }
 
-impl<TC, E, V, C> Orchestrator<TC, E, V, C>
+impl<TC, E, V, C, VD> Orchestrator<TC, E, V, C, VD>
 where
     TC: Creator,
-    E: VerificationExecutor<TC::TaskData, VerificationData>,
+    E: VerificationExecutor<TC::TaskData, VD>,
     V: ValidatorTrait,
     C: Clock,
+    VD: FromBlsAggregation + Send + Sync,
 {
     /// Creates a new Orchestrator instance with the given dependencies.
     ///
@@ -110,17 +115,19 @@ where
             task_creator,
             executor,
             validator,
+            _verification_data: PhantomData,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<TC, E, V, C> OrchestratorTrait for Orchestrator<TC, E, V, C>
+impl<TC, E, V, C, VD> OrchestratorTrait for Orchestrator<TC, E, V, C, VD>
 where
     TC: Creator + Send + Sync,
-    E: VerificationExecutor<TC::TaskData, VerificationData> + Send + Sync,
+    E: VerificationExecutor<TC::TaskData, VD> + Send + Sync,
     V: ValidatorTrait + Send + Sync,
     C: Clock + Send + Sync,
+    VD: FromBlsAggregation + Send + Sync,
 {
     async fn run(
         mut self,
@@ -289,19 +296,12 @@ where
                             panic!("failed to verify aggregated signature");
                         }
 
-                        // Execute verification with the aggregated signature
-                        // Serialize BLS-specific types to bytes for generic VerificationData
-                        let serialized_signatures: Vec<Vec<u8>> = agg_signatures.iter().map(|s| s.to_vec()).collect();
-                        let serialized_public_keys: Vec<Vec<u8>> = participating.iter().map(|pk| pk.to_vec()).collect();
-
-                        // Serialize G1 public keys to context
-                        let mut context = Vec::new();
-                        for g1_pubkey in &participating_g1 {
-                            context.extend_from_slice(g1_pubkey);
-                        }
-
-                        let verification_data = VerificationData::new(serialized_signatures, serialized_public_keys)
-                            .with_context(context);
+                        // Build the executor's verification-data container from the aggregation output.
+                        let verification_data = VD::from_bls_aggregation(
+                            agg_signatures,
+                            participating,
+                            participating_g1,
+                        );
 
                         match self.executor.execute_verification(
                             &expected_digest,
@@ -347,12 +347,13 @@ where
     }
 }
 
-impl<TC, E, V, C> Orchestrator<TC, E, V, C>
+impl<TC, E, V, C, VD> Orchestrator<TC, E, V, C, VD>
 where
     TC: Creator,
-    E: VerificationExecutor<TC::TaskData, VerificationData>,
+    E: VerificationExecutor<TC::TaskData, VD>,
     V: ValidatorTrait,
     C: Clock,
+    VD: FromBlsAggregation + Send + Sync,
 {
     /// Get a reference to the task creator
     #[allow(dead_code)]

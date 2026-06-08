@@ -3,7 +3,7 @@ pub mod traits;
 pub mod types;
 
 pub use bls::{BlsEigenlayerExecutor, convert_non_signer_data};
-pub use traits::VerificationExecutor;
+pub use traits::{FromBlsAggregation, VerificationExecutor};
 pub use types::{ExecutionResult, VerificationData};
 
 #[cfg(test)]

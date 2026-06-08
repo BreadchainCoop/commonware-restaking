@@ -5,7 +5,12 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tracing::info;
 
-use crate::executor::{VerificationData, VerificationExecutor};
+use crate::executor::{FromBlsAggregation, VerificationData, VerificationExecutor};
+
+/// Fallible orchestrator construction, parameterized by the verification-data container
+/// `VD` the executor consumes.
+type OrchestratorBuildResult<TC, E, V, C, VD> =
+    Result<crate::orchestrator::types::Orchestrator<TC, E, V, C, VD>, Box<dyn std::error::Error>>;
 
 /// Configuration bundle returned by the orchestrator builder
 #[allow(dead_code)]
@@ -255,11 +260,27 @@ impl<C: Clock> OrchestratorBuilder<C> {
         task_creator: TC,
         executor: E,
         validator: V,
-    ) -> Result<crate::orchestrator::types::Orchestrator<TC, E, V, C>, Box<dyn std::error::Error>>
+    ) -> OrchestratorBuildResult<TC, E, V, C, VerificationData>
     where
         TC: crate::creator::Creator + Send + Sync,
         E: VerificationExecutor<TC::TaskData, VerificationData> + Send + Sync,
         V: ValidatorTrait + Send + Sync,
+    {
+        self.build_with::<TC, E, V, VerificationData>(task_creator, executor, validator)
+    }
+
+    /// Builds an orchestrator whose executor consumes the verification-data container `VD`.
+    pub fn build_with<TC, E, V, VD>(
+        self,
+        task_creator: TC,
+        executor: E,
+        validator: V,
+    ) -> OrchestratorBuildResult<TC, E, V, C, VD>
+    where
+        TC: crate::creator::Creator + Send + Sync,
+        E: VerificationExecutor<TC::TaskData, VD> + Send + Sync,
+        V: ValidatorTrait + Send + Sync,
+        VD: FromBlsAggregation + Send + Sync,
     {
         self.validate()?;
 
