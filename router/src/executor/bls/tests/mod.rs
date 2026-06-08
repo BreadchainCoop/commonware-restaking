@@ -29,6 +29,7 @@ impl BlsSignatureVerificationHandler for MockVerificationHandler {
     type TaskData = ();
     async fn handle_verification(
         &mut self,
+        _round: u64,
         _msg_hash: FixedBytes<32>,
         _quorum_numbers: Bytes,
         _current_block_number: u32,
@@ -51,6 +52,7 @@ struct TestBlsSignatureVerificationHandler {
     should_succeed: bool,
     expected_result: ExecutionResult,
     call_count: u32,
+    last_round: Option<u64>,
 }
 
 impl TestBlsSignatureVerificationHandler {
@@ -59,6 +61,7 @@ impl TestBlsSignatureVerificationHandler {
             should_succeed,
             expected_result,
             call_count: 0,
+            last_round: None,
         }
     }
 }
@@ -68,6 +71,7 @@ impl BlsSignatureVerificationHandler for TestBlsSignatureVerificationHandler {
     type TaskData = ();
     async fn handle_verification(
         &mut self,
+        round: u64,
         _msg_hash: FixedBytes<32>,
         _quorum_numbers: Bytes,
         _current_block_number: u32,
@@ -75,6 +79,7 @@ impl BlsSignatureVerificationHandler for TestBlsSignatureVerificationHandler {
         _task_data: Option<&Self::TaskData>,
     ) -> Result<ExecutionResult> {
         self.call_count += 1;
+        self.last_round = Some(round);
 
         if self.should_succeed {
             Ok(self.expected_result.clone())
@@ -126,6 +131,7 @@ async fn test_mock_verification_handler_success() {
 
     let result = handler
         .handle_verification(
+            7,
             msg_hash,
             quorum_numbers,
             current_block_number,
@@ -180,6 +186,7 @@ async fn test_verification_handler_trait_success() {
 
     let result = handler
         .handle_verification(
+            42,
             msg_hash,
             quorum_numbers,
             current_block_number,
@@ -197,6 +204,11 @@ async fn test_verification_handler_trait_success() {
     assert_eq!(execution_result.block_number, expected_result.block_number);
     assert_eq!(execution_result.gas_used, expected_result.gas_used);
     assert_eq!(handler.call_count, 1);
+    assert_eq!(
+        handler.last_round,
+        Some(42),
+        "handler should receive the round number passed by the caller"
+    );
 }
 
 #[tokio::test]
@@ -236,6 +248,7 @@ async fn test_verification_handler_trait_failure() {
 
     let result = handler
         .handle_verification(
+            42,
             msg_hash,
             quorum_numbers,
             current_block_number,

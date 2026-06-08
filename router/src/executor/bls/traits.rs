@@ -14,6 +14,7 @@ where
 {
     async fn execute_bls_verification(
         &mut self,
+        round: u64,
         payload_hash: &[u8],
         verification_data: BlsVerificationData,
         task_data: Option<&T>,
@@ -27,6 +28,7 @@ pub trait BlsSignatureVerificationHandler: Send + Sync {
 
     async fn handle_verification(
         &mut self,
+        round: u64,
         msg_hash: FixedBytes<32>,
         quorum_numbers: Bytes,
         current_block_number: u32,

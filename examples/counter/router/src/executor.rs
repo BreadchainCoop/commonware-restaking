@@ -28,6 +28,7 @@ impl BlsSignatureVerificationHandler for CounterHandler {
     type TaskData = CounterTaskData;
     async fn handle_verification(
         &mut self,
+        _round: u64,
         msg_hash: FixedBytes<32>,
         quorum_numbers: Bytes,
         current_block_number: u32,

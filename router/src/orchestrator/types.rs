@@ -304,6 +304,7 @@ where
                         );
 
                         match self.executor.execute_verification(
+                            msg.round,
                             &expected_digest,
                             verification_data,
                             Some(&msg.metadata),

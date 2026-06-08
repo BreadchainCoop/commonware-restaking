@@ -177,6 +177,7 @@ where
 {
     async fn execute_verification(
         &mut self,
+        _round: u64,
         _digest: &[u8],
         _verification_data: VerificationData,
         _task_data: Option<&T>,
