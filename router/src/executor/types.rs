@@ -41,7 +41,7 @@ impl FromBlsAggregation for VerificationData {
             .iter()
             .map(|pk| Bytes::from(pk.to_vec()))
             .collect();
-        let mut context = Vec::new();
+        let mut context = Vec::with_capacity(g1_public_keys.iter().map(|g1| g1.len()).sum());
         for g1_pubkey in &g1_public_keys {
             context.extend_from_slice(g1_pubkey);
         }
