@@ -104,7 +104,7 @@ impl<H: BlsSignatureVerificationHandler> VerificationExecutor<H::TaskData, Verif
             .signatures
             .iter()
             .map(|bytes| {
-                Signature::try_from(bytes.as_slice())
+                Signature::try_from(bytes.as_ref())
                     .map_err(|e| anyhow::anyhow!("Failed to deserialize signature: {:?}", e))
             })
             .collect::<Result<Vec<_>>>()?;
@@ -114,7 +114,7 @@ impl<H: BlsSignatureVerificationHandler> VerificationExecutor<H::TaskData, Verif
             .public_keys
             .iter()
             .map(|bytes| {
-                PublicKey::try_from(bytes.as_slice())
+                PublicKey::try_from(bytes.as_ref())
                     .map_err(|e| anyhow::anyhow!("Failed to deserialize public key: {:?}", e))
             })
             .collect::<Result<Vec<_>>>()?;
@@ -153,6 +153,22 @@ impl<H: BlsSignatureVerificationHandler> VerificationExecutor<H::TaskData, Verif
             BlsVerificationData::new(signatures, public_keys, g1_public_keys);
 
         self.execute_bls_verification(payload_hash, bls_verification_data, task_data)
+            .await
+    }
+}
+
+/// Runs BLS verification on the provided `BlsVerificationData`.
+#[async_trait]
+impl<H: BlsSignatureVerificationHandler> VerificationExecutor<H::TaskData, BlsVerificationData>
+    for BlsEigenlayerExecutor<H>
+{
+    async fn execute_verification(
+        &mut self,
+        payload_hash: &[u8],
+        verification_data: BlsVerificationData,
+        task_data: Option<&H::TaskData>,
+    ) -> Result<ExecutionResult> {
+        self.execute_bls_verification(payload_hash, verification_data, task_data)
             .await
     }
 }

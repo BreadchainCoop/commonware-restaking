@@ -1,10 +1,13 @@
 use super::task_data::TestTaskData;
 use crate::creator::Creator;
 use crate::creator::MockCreator;
-use crate::executor::MockExecutor;
+use crate::executor::bls::BlsVerificationData;
+use crate::executor::{ExecutionResult, MockExecutor, VerificationExecutor};
 use crate::orchestrator::builder::OrchestratorBuilder;
 use crate::orchestrator::traits::OrchestratorTrait;
+use async_trait::async_trait;
 use commonware_avs_core::validator::MockValidator;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use super::helpers::{contributor, signer};
@@ -343,6 +346,116 @@ async fn test_executor_called_exactly_once_after_threshold() {
         *exec_count.lock().unwrap(),
         1,
         "executor should fire exactly once at threshold"
+    );
+
+    drop(msg_tx);
+    handle.abort();
+}
+
+/// Records the signer counts from each `BlsVerificationData` it receives.
+struct RecordingBlsExecutor {
+    /// (signatures, public_keys, g1_public_keys) counts from the last call.
+    received: Arc<Mutex<Option<(usize, usize, usize)>>>,
+}
+
+#[async_trait]
+impl VerificationExecutor<TestTaskData, BlsVerificationData> for RecordingBlsExecutor {
+    async fn execute_verification(
+        &mut self,
+        _payload_hash: &[u8],
+        verification_data: BlsVerificationData,
+        _task_data: Option<&TestTaskData>,
+    ) -> anyhow::Result<ExecutionResult> {
+        *self.received.lock().unwrap() = Some((
+            verification_data.signatures.len(),
+            verification_data.public_keys.len(),
+            verification_data.g1_public_keys.len(),
+        ));
+        Ok(ExecutionResult {
+            transaction_hash: "typed".to_string(),
+            block_number: None,
+            gas_used: None,
+            status: Some(true),
+            contract_address: None,
+        })
+    }
+}
+
+/// Built with `VD = BlsVerificationData`, the orchestrator delivers one entry per
+/// participating signer to the executor.
+#[tokio::test(start_paused = true)]
+async fn test_orchestrator_passes_typed_bls_data() {
+    use alloy::primitives::U256;
+    use alloy::sol_types::SolValue;
+    use bytes::Bytes;
+    use commonware_avs_core::wire::{Aggregation, aggregation::Payload};
+    use commonware_codec::{EncodeSize, Write};
+    use commonware_cryptography::{Hasher, Sha256, Signer};
+    use tokio::sync::mpsc::unbounded_channel;
+
+    let clock = MockClock::new();
+    let orchestrator_signer = signer::create_test_signer();
+    let (contributors, g1_map, contributor_signers) =
+        contributor::create_test_contributors_with_signers();
+
+    let builder = OrchestratorBuilder::new(clock, orchestrator_signer)
+        .with_contributors(contributors)
+        .with_g1_map(g1_map)
+        .with_threshold(2)
+        .with_aggregation_frequency(Duration::from_millis(100));
+
+    let received = Arc::new(Mutex::new(None));
+    let executor = RecordingBlsExecutor {
+        received: received.clone(),
+    };
+    let validator = MockValidator::new_success(1);
+
+    let orchestrator = builder
+        .build_with::<_, _, _, BlsVerificationData>(
+            MockCreator::<TestTaskData>::new(),
+            executor,
+            validator,
+        )
+        .expect("failed to build orchestrator");
+
+    // MockValidator::new_success(1) returns Sha256(U256::from(1).abi_encode()) regardless of
+    // the message bytes; reproduce it so the contributor signatures verify and aggregate.
+    let expected_digest = {
+        let payload = U256::from(1u64).abi_encode();
+        let mut hasher = Sha256::new();
+        hasher.update(&payload);
+        hasher.finalize()
+    };
+
+    // Enqueue exactly the threshold (2) signed messages for round 1.
+    let (msg_tx, msg_rx) = unbounded_channel::<(commonware_avs_core::bn254::PublicKey, Bytes)>();
+    for contributor_signer in contributor_signers.iter().take(2) {
+        let sig = contributor_signer.sign(None, expected_digest.as_ref());
+        let msg = Aggregation::<TestTaskData>::new(
+            1,
+            TestTaskData::default(),
+            Some(Payload::Signature(sig.to_vec())),
+        );
+        let mut buf = Vec::with_capacity(msg.encode_size());
+        msg.write(&mut buf);
+        msg_tx
+            .send((contributor_signer.public_key(), Bytes::from(buf)))
+            .unwrap();
+    }
+
+    let handle = tokio::spawn(async move {
+        orchestrator
+            .run(MockSender::new(), MockReceiver::new(msg_rx))
+            .await;
+    });
+
+    tokio::time::advance(Duration::from_millis(200)).await;
+    tokio::task::yield_now().await;
+
+    assert_eq!(
+        *received.lock().unwrap(),
+        Some((2, 2, 2)),
+        "orchestrator should deliver typed BlsVerificationData with one entry per signer"
     );
 
     drop(msg_tx);

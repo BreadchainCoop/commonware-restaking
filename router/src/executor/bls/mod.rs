@@ -5,6 +5,7 @@ pub mod utils;
 
 pub use executor::BlsEigenlayerExecutor;
 pub use traits::BlsSignatureVerificationHandler;
+pub use types::BlsVerificationData;
 pub use utils::convert_non_signer_data;
 
 #[cfg(test)]
