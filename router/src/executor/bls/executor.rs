@@ -94,6 +94,7 @@ impl<H: BlsSignatureVerificationHandler> VerificationExecutor<H::TaskData, Verif
 {
     async fn execute_verification(
         &mut self,
+        round: u64,
         payload_hash: &[u8],
         verification_data: VerificationData,
         task_data: Option<&H::TaskData>,
@@ -152,7 +153,7 @@ impl<H: BlsSignatureVerificationHandler> VerificationExecutor<H::TaskData, Verif
         let bls_verification_data =
             BlsVerificationData::new(signatures, public_keys, g1_public_keys);
 
-        self.execute_bls_verification(payload_hash, bls_verification_data, task_data)
+        self.execute_bls_verification(round, payload_hash, bls_verification_data, task_data)
             .await
     }
 }
@@ -164,11 +165,12 @@ impl<H: BlsSignatureVerificationHandler> VerificationExecutor<H::TaskData, BlsVe
 {
     async fn execute_verification(
         &mut self,
+        round: u64,
         payload_hash: &[u8],
         verification_data: BlsVerificationData,
         task_data: Option<&H::TaskData>,
     ) -> Result<ExecutionResult> {
-        self.execute_bls_verification(payload_hash, verification_data, task_data)
+        self.execute_bls_verification(round, payload_hash, verification_data, task_data)
             .await
     }
 }
@@ -179,6 +181,7 @@ impl<H: BlsSignatureVerificationHandler> BlsExecutorTrait<H::TaskData>
 {
     async fn execute_bls_verification(
         &mut self,
+        round: u64,
         payload_hash: &[u8],
         verification_data: BlsVerificationData,
         task_data: Option<&H::TaskData>,
@@ -239,6 +242,7 @@ impl<H: BlsSignatureVerificationHandler> BlsExecutorTrait<H::TaskData>
         let result = self
             .contract_handler
             .handle_verification(
+                round,
                 msg_hash,
                 quorum_numbers,
                 current_block_number

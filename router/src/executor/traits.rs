@@ -12,6 +12,7 @@ where
 {
     async fn execute_verification(
         &mut self,
+        round: u64,
         payload_hash: &[u8],
         verification_data: V,
         task_data: Option<&T>,

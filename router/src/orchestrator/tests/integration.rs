@@ -356,16 +356,20 @@ async fn test_executor_called_exactly_once_after_threshold() {
 struct RecordingBlsExecutor {
     /// (signatures, public_keys, g1_public_keys) counts from the last call.
     received: Arc<Mutex<Option<(usize, usize, usize)>>>,
+    /// Round number from the last call.
+    received_round: Arc<Mutex<Option<u64>>>,
 }
 
 #[async_trait]
 impl VerificationExecutor<TestTaskData, BlsVerificationData> for RecordingBlsExecutor {
     async fn execute_verification(
         &mut self,
+        round: u64,
         _payload_hash: &[u8],
         verification_data: BlsVerificationData,
         _task_data: Option<&TestTaskData>,
     ) -> anyhow::Result<ExecutionResult> {
+        *self.received_round.lock().unwrap() = Some(round);
         *self.received.lock().unwrap() = Some((
             verification_data.signatures.len(),
             verification_data.public_keys.len(),
@@ -405,8 +409,10 @@ async fn test_orchestrator_passes_typed_bls_data() {
         .with_aggregation_frequency(Duration::from_millis(100));
 
     let received = Arc::new(Mutex::new(None));
+    let received_round = Arc::new(Mutex::new(None));
     let executor = RecordingBlsExecutor {
         received: received.clone(),
+        received_round: received_round.clone(),
     };
     let validator = MockValidator::new_success(1);
 
@@ -456,6 +462,11 @@ async fn test_orchestrator_passes_typed_bls_data() {
         *received.lock().unwrap(),
         Some((2, 2, 2)),
         "orchestrator should deliver typed BlsVerificationData with one entry per signer"
+    );
+    assert_eq!(
+        *received_round.lock().unwrap(),
+        Some(1),
+        "orchestrator should pass the round number through to the executor"
     );
 
     drop(msg_tx);
