@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use commonware_avs_core::bn254::{G1PublicKey, PublicKey, Signature, get_points};
 use commonware_utils::hex;
 use eigen_crypto_bls::convert_to_g1_point;
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::HashMap, future::IntoFuture, str::FromStr};
 use tracing::debug;
 
 use super::traits::{BlsExecutorTrait, BlsSignatureVerificationHandler};
@@ -53,39 +53,25 @@ impl<H> BlsEigenlayerExecutor<H> {
             g1_hash_map: HashMap::new(),
         }
     }
+}
 
-    async fn ensure_g1_hash_map_entry(
-        &mut self,
-        contributor: &PublicKey,
-        g1_pubkey: &G1PublicKey,
-    ) -> Result<Address> {
-        if let Some(address) = self.g1_hash_map.get(contributor) {
-            return Ok(*address);
-        }
-
-        let g1_point = G1Point {
-            X: U256::from_str(&g1_pubkey.get_x())
-                .map_err(|e| anyhow::anyhow!("Failed to parse X coordinate: {}", e))?,
-            Y: U256::from_str(&g1_pubkey.get_y())
-                .map_err(|e| anyhow::anyhow!("Failed to parse Y coordinate: {}", e))?,
-        };
-        let hex_string = format!(
-            "0x{}",
-            hex(alloy_primitives::keccak256(g1_point.abi_encode()).as_ref())
-        );
-        let address = self
-            .bls_apk_registry
-            .pubkeyHashToOperator(
-                FixedBytes::<32>::from_str(&hex_string)
-                    .map_err(|e| anyhow::anyhow!("Failed to parse hex string: {}", e))?,
-            )
-            .call()
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to get operator from pubkey hash: {}", e))?;
-
-        self.g1_hash_map.insert(contributor.clone(), address);
-        Ok(address)
-    }
+/// Computes the `BLSApkRegistry` pubkey hash used to key `pubkeyHashToOperator`.
+///
+/// This is `keccak256(abi_encode(G1Point { X, Y }))` for the operator's G1 public
+/// key, matching the hash the registry stores on-chain.
+fn pubkey_hash(g1_pubkey: &G1PublicKey) -> Result<FixedBytes<32>> {
+    let g1_point = G1Point {
+        X: U256::from_str(&g1_pubkey.get_x())
+            .map_err(|e| anyhow::anyhow!("Failed to parse X coordinate: {}", e))?,
+        Y: U256::from_str(&g1_pubkey.get_y())
+            .map_err(|e| anyhow::anyhow!("Failed to parse Y coordinate: {}", e))?,
+    };
+    let hex_string = format!(
+        "0x{}",
+        hex(alloy_primitives::keccak256(g1_point.abi_encode()).as_ref())
+    );
+    FixedBytes::<32>::from_str(&hex_string)
+        .map_err(|e| anyhow::anyhow!("Failed to parse hex string: {}", e))
 }
 
 #[async_trait]
@@ -202,14 +188,56 @@ impl<H: BlsSignatureVerificationHandler> BlsExecutorTrait<H::TaskData>
 
         let msg_hash = FixedBytes::<32>::from_slice(payload_hash);
 
-        // Get or populate operator addresses
-        let mut operators = Vec::new();
-        for (contributor, g1_pubkey) in participating.iter().zip(participating_g1.iter()) {
-            let address = self
-                .ensure_g1_hash_map_entry(contributor, g1_pubkey)
-                .await?;
-            operators.push(address);
+        // Resolve an operator address for every participant.
+        //
+        // Phase 1: take cache hits synchronously. Cache misses — the first round,
+        // or whenever a new operator joins — each need a `pubkeyHashToOperator`
+        // RPC call, so record their slot index and precomputed pubkey hash.
+        let mut operators: Vec<Option<Address>> = Vec::with_capacity(participating.len());
+        let mut misses: Vec<(usize, PublicKey, FixedBytes<32>)> = Vec::new();
+        for (index, (contributor, g1_pubkey)) in participating
+            .iter()
+            .zip(participating_g1.iter())
+            .enumerate()
+        {
+            match self.g1_hash_map.get(contributor) {
+                Some(address) => operators.push(Some(*address)),
+                None => {
+                    operators.push(None);
+                    misses.push((index, contributor.clone(), pubkey_hash(g1_pubkey)?));
+                }
+            }
         }
+
+        // Phase 2: resolve all cache misses with a single round-trip of latency
+        // by firing the lookups concurrently, then write them back to the cache.
+        // Steady-state (all operators cached) skips this entirely.
+        if !misses.is_empty() {
+            debug!(
+                round,
+                cache_misses = misses.len(),
+                "resolving operator addresses for cache misses in parallel"
+            );
+            let calls: Vec<_> = misses
+                .iter()
+                .map(|(_, _, hash)| self.bls_apk_registry.pubkeyHashToOperator(*hash))
+                .collect();
+            let resolved =
+                futures::future::join_all(calls.iter().map(|call| call.call().into_future())).await;
+
+            for ((index, contributor, _), result) in misses.into_iter().zip(resolved) {
+                let address = result.map_err(|e| {
+                    anyhow::anyhow!("Failed to get operator from pubkey hash: {}", e)
+                })?;
+                self.g1_hash_map.insert(contributor, address);
+                operators[index] = Some(address);
+            }
+        }
+
+        let operators = operators
+            .into_iter()
+            .collect::<Option<Vec<Address>>>()
+            .ok_or_else(|| anyhow::anyhow!("Failed to resolve all operator addresses"))?;
 
         let current_block_number = self
             .view_only_provider
@@ -263,5 +291,49 @@ impl<H: BlsSignatureVerificationHandler> BlsExecutorTrait<H::TaskData>
         );
 
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Builds a `G1PublicKey` from decimal affine coordinates.
+    fn g1(x: &str, y: &str) -> G1PublicKey {
+        G1PublicKey::create_from_g1_coordinates(x, y).expect("valid on-curve G1 coordinates")
+    }
+
+    #[test]
+    fn pubkey_hash_matches_keccak_of_abi_encoded_point() {
+        // BN254 G1 generator (1, 2).
+        let pk = g1("1", "2");
+        let expected = alloy_primitives::keccak256(
+            G1Point {
+                X: U256::from(1u8),
+                Y: U256::from(2u8),
+            }
+            .abi_encode(),
+        );
+        assert_eq!(pubkey_hash(&pk).unwrap(), expected);
+    }
+
+    #[test]
+    fn pubkey_hash_is_deterministic_and_distinct_per_point() {
+        // Generator G and 2G — distinct on-curve points.
+        let g = g1("1", "2");
+        let two_g = g1(
+            "1368015179489954701390400359078579693043519447331113978918064868415326638035",
+            "9918110051302171585080402603319702774565515993150576347155970296011118125764",
+        );
+        assert_eq!(
+            pubkey_hash(&g).unwrap(),
+            pubkey_hash(&g).unwrap(),
+            "hash must be deterministic"
+        );
+        assert_ne!(
+            pubkey_hash(&g).unwrap(),
+            pubkey_hash(&two_g).unwrap(),
+            "distinct points must hash distinctly"
+        );
     }
 }
