@@ -4,7 +4,6 @@ use alloy_primitives::{Address, Bytes, FixedBytes, U256};
 use anyhow::Result;
 use async_trait::async_trait;
 use commonware_avs_core::bn254::{G1PublicKey, PublicKey, Signature, get_points};
-use commonware_utils::hex;
 use eigen_crypto_bls::convert_to_g1_point;
 use std::{collections::HashMap, future::IntoFuture, str::FromStr};
 use tracing::debug;
@@ -66,12 +65,7 @@ fn pubkey_hash(g1_pubkey: &G1PublicKey) -> Result<FixedBytes<32>> {
         Y: U256::from_str(&g1_pubkey.get_y())
             .map_err(|e| anyhow::anyhow!("Failed to parse Y coordinate: {}", e))?,
     };
-    let hex_string = format!(
-        "0x{}",
-        hex(alloy_primitives::keccak256(g1_point.abi_encode()).as_ref())
-    );
-    FixedBytes::<32>::from_str(&hex_string)
-        .map_err(|e| anyhow::anyhow!("Failed to parse hex string: {}", e))
+    Ok(alloy_primitives::keccak256(g1_point.abi_encode()))
 }
 
 #[async_trait]
