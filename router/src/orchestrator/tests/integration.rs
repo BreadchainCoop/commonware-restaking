@@ -472,3 +472,152 @@ async fn test_orchestrator_passes_typed_bls_data() {
     drop(msg_tx);
     handle.abort();
 }
+
+/// Metrics registered by the orchestrator are observable through the runtime context's
+/// `Metrics::encode` on the quorum path: accepted signatures, time-to-quorum, and a
+/// successful execution are all recorded, and a late signature for the executed round
+/// is counted as dropped.
+#[tokio::test(start_paused = true)]
+async fn test_metrics_observed_on_quorum_path() {
+    use alloy::primitives::U256;
+    use alloy::sol_types::SolValue;
+    use bytes::Bytes;
+    use commonware_avs_core::wire::{Aggregation, aggregation::Payload};
+    use commonware_codec::{EncodeSize, Write};
+    use commonware_cryptography::{Hasher, Sha256, Signer};
+    use commonware_runtime::Metrics;
+    use tokio::sync::mpsc::unbounded_channel;
+
+    let clock = MockClock::new();
+    let orchestrator_signer = signer::create_test_signer();
+    let (contributors, g1_map, contributor_signers) =
+        contributor::create_test_contributors_with_signers();
+
+    // threshold=2, 3 signatures for round 1: the first two are accepted and trigger
+    // execution; the third arrives after the round executed and is dropped.
+    let builder = OrchestratorBuilder::new(clock.clone(), orchestrator_signer)
+        .with_contributors(contributors)
+        .with_g1_map(g1_map)
+        .with_threshold(2)
+        .with_aggregation_frequency(Duration::from_millis(100));
+
+    let orchestrator = builder
+        .build(
+            MockCreator::<TestTaskData>::new(),
+            MockExecutor::new(),
+            MockValidator::new_success(1),
+        )
+        .expect("failed to build orchestrator");
+
+    let expected_digest = {
+        let payload = U256::from(1u64).abi_encode();
+        let mut hasher = Sha256::new();
+        hasher.update(&payload);
+        hasher.finalize()
+    };
+
+    let (msg_tx, msg_rx) = unbounded_channel::<(commonware_avs_core::bn254::PublicKey, Bytes)>();
+    for contributor_signer in &contributor_signers {
+        let sig = contributor_signer.sign(None, expected_digest.as_ref());
+        let msg = Aggregation::<TestTaskData>::new(
+            1,
+            TestTaskData::default(),
+            Some(Payload::Signature(sig.to_vec())),
+        );
+        let mut buf = Vec::with_capacity(msg.encode_size());
+        msg.write(&mut buf);
+        msg_tx
+            .send((contributor_signer.public_key(), Bytes::from(buf)))
+            .unwrap();
+    }
+
+    let handle = tokio::spawn(async move {
+        orchestrator
+            .run(MockSender::new(), MockReceiver::new(msg_rx))
+            .await;
+    });
+
+    tokio::time::advance(Duration::from_millis(200)).await;
+    tokio::task::yield_now().await;
+
+    let encoded = clock.encode();
+    for expected in [
+        "orchestrator_signatures_total{status=\"Success\"} 2",
+        "orchestrator_signatures_total{status=\"Dropped\"} 1",
+        "orchestrator_round_executions_total{status=\"Success\"} 1",
+        "orchestrator_time_to_quorum_seconds_count 1",
+        "orchestrator_signature_arrival_seconds_count 2",
+    ] {
+        assert!(
+            encoded.contains(expected),
+            "expected `{expected}` in encoded metrics:\n{encoded}"
+        );
+    }
+
+    drop(msg_tx);
+    handle.abort();
+}
+
+/// An aggregation window that expires without reaching the signature threshold
+/// increments the round-timeout counter, and the next round is started and broadcast.
+#[tokio::test(start_paused = true)]
+async fn test_metrics_round_timeout_counted() {
+    use bytes::Bytes;
+    use commonware_runtime::Metrics;
+    use tokio::sync::mpsc::unbounded_channel;
+
+    let clock = MockClock::new();
+    let orchestrator_signer = signer::create_test_signer();
+    let (contributors, g1_map) = contributor::create_test_contributors();
+
+    let builder = OrchestratorBuilder::new(clock.clone(), orchestrator_signer)
+        .with_contributors(contributors)
+        .with_g1_map(g1_map)
+        .with_threshold(2)
+        .with_aggregation_frequency(Duration::from_millis(100));
+
+    let orchestrator = builder
+        .build(
+            MockCreator::<TestTaskData>::new(),
+            MockExecutor::new(),
+            MockValidator::new_success(1),
+        )
+        .expect("failed to build orchestrator");
+
+    // Keep the sender alive so the receiver stays open; no signatures are ever sent.
+    let (msg_tx, msg_rx) = unbounded_channel::<(commonware_avs_core::bn254::PublicKey, Bytes)>();
+
+    let handle = tokio::spawn(async move {
+        orchestrator
+            .run(MockSender::new(), MockReceiver::new(msg_rx))
+            .await;
+    });
+
+    // Let the orchestrator run up to its first aggregation window before advancing,
+    // so the window timer is registered against the pre-advance clock. Then advance
+    // exactly one window: round 1 expires without any signatures, and round 2 is
+    // broadcast with its window still pending.
+    tokio::task::yield_now().await;
+    tokio::time::advance(Duration::from_millis(100)).await;
+    tokio::task::yield_now().await;
+
+    let encoded = clock.encode();
+    for expected in [
+        "orchestrator_round_timeouts_total 1",
+        "orchestrator_rounds_started_total 2",
+        "orchestrator_round_broadcasts_total 2",
+        // Histograms and the executions family are registered (and thus visible to
+        // consumers) even before their first observation.
+        "orchestrator_time_to_quorum_seconds",
+        "orchestrator_signature_arrival_seconds",
+        "orchestrator_round_executions",
+    ] {
+        assert!(
+            encoded.contains(expected),
+            "expected `{expected}` in encoded metrics:\n{encoded}"
+        );
+    }
+
+    drop(msg_tx);
+    handle.abort();
+}

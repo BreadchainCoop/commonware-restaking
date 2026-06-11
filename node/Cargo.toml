@@ -32,7 +32,6 @@ eigen-logging = { workspace = true }
 futures = { workspace = true }
 futures-util = { workspace = true }
 governor = { workspace = true }
-prometheus-client = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }

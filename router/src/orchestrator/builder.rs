@@ -1,6 +1,6 @@
 use commonware_avs_core::bn254::{Bn254, G1PublicKey, PublicKey};
 use commonware_avs_core::validator::ValidatorTrait;
-use commonware_runtime::Clock;
+use commonware_runtime::{Clock, Metrics};
 use std::collections::HashMap;
 use std::time::Duration;
 use tracing::info;
@@ -14,7 +14,7 @@ type OrchestratorBuildResult<TC, E, V, C, VD> =
 
 /// Configuration bundle returned by the orchestrator builder
 #[allow(dead_code)]
-pub struct OrchestratorBuilderConfig<C: Clock> {
+pub struct OrchestratorBuilderConfig<C: Clock + Metrics> {
     pub runtime: C,
     pub signer: Bn254,
     pub contributors: Vec<PublicKey>,
@@ -55,7 +55,7 @@ impl Default for OrchestratorConfig {
 /// orchestrator instances with proper dependency injection.
 /// It handles the complex construction logic including environment
 /// variable configuration and dependency creation.
-pub struct OrchestratorBuilder<C: Clock> {
+pub struct OrchestratorBuilder<C: Clock + Metrics> {
     runtime: C,
     signer: Bn254,
     contributors: Vec<PublicKey>,
@@ -63,7 +63,7 @@ pub struct OrchestratorBuilder<C: Clock> {
     config: OrchestratorConfig,
 }
 
-impl<C: Clock> OrchestratorBuilder<C> {
+impl<C: Clock + Metrics> OrchestratorBuilder<C> {
     /// Creates a new OrchestratorBuilder with the given runtime and signer.
     ///
     /// # Arguments

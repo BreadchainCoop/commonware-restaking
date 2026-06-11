@@ -9,17 +9,20 @@ use commonware_codec::{EncodeSize, ReadExt, Write};
 use commonware_cryptography::{Hasher, Sha256, Verifier};
 use commonware_macros::select;
 use commonware_p2p::{Receiver, Sender};
-use commonware_runtime::Clock;
+use commonware_runtime::telemetry::metrics::histogram::HistogramExt;
+use commonware_runtime::telemetry::metrics::status::{CounterExt, Status};
+use commonware_runtime::{Clock, Metrics};
 use commonware_utils::hex;
 use std::{
     collections::{HashMap, HashSet},
     marker::PhantomData,
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 use tracing::info;
 
 use crate::creator::Creator;
 use crate::executor::{FromBlsAggregation, VerificationData, VerificationExecutor};
+use crate::orchestrator::metrics::OrchestratorMetrics;
 use crate::orchestrator::traits::OrchestratorTrait;
 
 /// Configuration for the generic orchestrator
@@ -42,14 +45,14 @@ pub struct OrchestratorConfig {
 /// * `TC` - Task creator implementation that implements `Creator`
 /// * `E` - Executor implementation that implements `VerificationExecutor`
 /// * `V` - Validator implementation that implements `ValidatorTrait`
-/// * `C` - Clock implementation that implements `Clock`
+/// * `C` - Runtime handle implementing `Clock` for timing and `Metrics` for metric registration
 /// * `VD` - Verification-data container the executor consumes (defaults to `VerificationData`)
 pub struct Orchestrator<TC, E, V, C, VD = VerificationData>
 where
     TC: Creator,
     E: VerificationExecutor<TC::TaskData, VD>,
     V: ValidatorTrait,
-    C: Clock,
+    C: Clock + Metrics,
     VD: FromBlsAggregation + Send + Sync,
 {
     runtime: C,
@@ -63,7 +66,17 @@ where
     task_creator: TC,
     executor: E,
     validator: V,
+    metrics: OrchestratorMetrics,
     _verification_data: PhantomData<fn() -> VD>,
+}
+
+/// Per-round signature-collection state.
+struct RoundState {
+    /// Time of the round's first broadcast, the origin for time-to-quorum and
+    /// signature-arrival measurements.
+    started: SystemTime,
+    /// Verified signatures collected so far, keyed by contributor index.
+    signatures: HashMap<usize, Bn254Signature>,
 }
 
 impl<TC, E, V, C, VD> Orchestrator<TC, E, V, C, VD>
@@ -71,7 +84,7 @@ where
     TC: Creator,
     E: VerificationExecutor<TC::TaskData, VD>,
     V: ValidatorTrait,
-    C: Clock,
+    C: Clock + Metrics,
     VD: FromBlsAggregation + Send + Sync,
 {
     /// Creates a new Orchestrator instance with the given dependencies.
@@ -104,6 +117,7 @@ where
             ordered_contributors.insert(contributor.clone(), idx);
         }
 
+        let metrics = OrchestratorMetrics::new(&runtime);
         Self {
             runtime,
             signer,
@@ -115,6 +129,7 @@ where
             task_creator,
             executor,
             validator,
+            metrics,
             _verification_data: PhantomData,
         }
     }
@@ -126,7 +141,7 @@ where
     TC: Creator + Send + Sync,
     E: VerificationExecutor<TC::TaskData, VD> + Send + Sync,
     V: ValidatorTrait + Send + Sync,
-    C: Clock + Send + Sync,
+    C: Clock + Metrics + Send + Sync,
     VD: FromBlsAggregation + Send + Sync,
 {
     async fn run(
@@ -134,7 +149,7 @@ where
         mut sender: impl Sender,
         mut receiver: impl Receiver<PublicKey = PublicKey>,
     ) {
-        let mut signatures = HashMap::new();
+        let mut signatures: HashMap<u64, RoundState> = HashMap::new();
         let mut executed_rounds: HashSet<u64> = HashSet::new();
 
         loop {
@@ -172,12 +187,17 @@ where
                 .send(commonware_p2p::Recipients::All, Bytes::from(buf), true)
                 .await
                 .expect("failed to broadcast message");
+            self.metrics.round_broadcasts.inc();
 
             // Only create a new signature entry if one doesn't exist for this round
             use std::collections::hash_map::Entry;
             match signatures.entry(current_round) {
                 Entry::Vacant(e) => {
-                    e.insert(HashMap::new());
+                    e.insert(RoundState {
+                        started: self.runtime.current(),
+                        signatures: HashMap::new(),
+                    });
+                    self.metrics.rounds_started.inc();
                     info!(
                         "Created signatures entry for state: {}, threshold is: {}",
                         current_round, self.t
@@ -190,7 +210,10 @@ where
             let continue_time = self.runtime.current() + self.aggregation_frequency;
             loop {
                 select! {
-                    _ = self.runtime.sleep_until(continue_time) => {break;},
+                    _ = self.runtime.sleep_until(continue_time) => {
+                        self.metrics.round_timeouts.inc();
+                        break;
+                    },
                     msg = receiver.recv() => {
                         // Parse message
                         let (sender, msg) = match msg {
@@ -201,26 +224,31 @@ where
                         // Get contributor
                         let Some(contributor) = self.ordered_contributors.get(&sender) else {
                             info!("Received message from unknown sender: {:?}", sender);
+                            self.metrics.signatures.inc(Status::Dropped);
                             continue;
                         };
 
                         // Check if round exists
                         let Ok(msg): Result<Aggregation<TC::TaskData>, _> = Aggregation::read(&mut std::io::Cursor::new(msg)) else {
                             info!("Failed to decode message from sender: {:?}", sender);
+                            self.metrics.signatures.inc(Status::Invalid);
                             continue;
                         };
                         if executed_rounds.contains(&msg.round) {
                             info!("Ignoring signature for already-executed round: {} from contributor: {:?}", msg.round, contributor);
+                            self.metrics.signatures.inc(Status::Dropped);
                             continue;
                         }
                         let Some(round) = signatures.get_mut(&msg.round) else {
                             info!("Received signature for unknown round: {} from contributor: {:?}", msg.round, contributor);
+                            self.metrics.signatures.inc(Status::Dropped);
                             continue;
                         };
 
                         // Check if contributor has already signed
-                        if round.contains_key(contributor) {
+                        if round.signatures.contains_key(contributor) {
                             info!("Contributor already signed for round: {} contributor: {:?}", msg.round, contributor);
+                            self.metrics.signatures.inc(Status::Dropped);
                             continue;
                         }
 
@@ -232,11 +260,13 @@ where
                             },
                             _ => {
                                 info!("Received non-signature payload from contributor: {:?}", contributor);
+                                self.metrics.signatures.inc(Status::Dropped);
                                 continue;
                             }
                         };
                         let Ok(signature) = Bn254Signature::try_from(signature) else {
                             info!("Failed to parse signature from contributor: {:?}", contributor);
+                            self.metrics.signatures.inc(Status::Invalid);
                             continue;
                         };
 
@@ -250,6 +280,7 @@ where
                                     msg.round, contributor, e
                                 );
                                 // Likely a stale signature after the round was executed; ignore safely.
+                                self.metrics.signatures.inc(Status::Invalid);
                                 continue;
                             }
                         };
@@ -260,19 +291,32 @@ where
                         let contributor_pubkey = &self.contributors[*contributor];
                         if !contributor_pubkey.verify(None, &expected_digest, &signature) {
                             info!("Signature verification failed for contributor: {:?}", contributor);
+                            self.metrics.signatures.inc(Status::Invalid);
                             continue;
                         }
 
                         info!("Signature verification succeeded for contributor: {:?}", contributor);
 
                         // Insert signature
-                        round.insert(contributor, signature);
+                        round.signatures.insert(*contributor, signature);
+                        self.metrics.signatures.inc(Status::Success);
+                        self.metrics
+                            .signature_arrival
+                            .observe_between(round.started, self.runtime.current());
 
                         // Check if should aggregate
                         info!("Current signatures count for round {}: {}, threshold: {}",
-                              msg.round, round.len(), self.t);
-                        if round.len() < self.t {
+                              msg.round, round.signatures.len(), self.t);
+                        if round.signatures.len() < self.t {
                             continue;
+                        }
+                        // The signature count only ever grows by one, so equality marks the
+                        // first time this round reaches the threshold; a retriggered
+                        // execution after a failure arrives with a higher count.
+                        if round.signatures.len() == self.t {
+                            self.metrics
+                                .time_to_quorum
+                                .observe_between(round.started, self.runtime.current());
                         }
 
                         // Aggregate signatures
@@ -280,7 +324,7 @@ where
                         let mut participating_g1 = Vec::new();
                         let mut agg_signatures = Vec::new();
                         for i in 0..self.contributors.len() {
-                            let Some(signature) = round.get(&i) else {
+                            let Some(signature) = round.signatures.get(&i) else {
                                 continue;
                             };
                             let contributor = &self.contributors[i];
@@ -315,6 +359,7 @@ where
                                     "Successfully executed verification with aggregated signature. Result: {:?}",
                                     result
                                 );
+                                self.metrics.round_executions.inc(Status::Success);
                                 // Drop per-round signature state now that this round has finished.
                                 signatures.remove(&msg.round);
                                 // Mark round complete so additional signatures are ignored and the outer
@@ -337,6 +382,7 @@ where
                                     "Failed to execute verification with aggregated signature: {:?}",
                                     e
                                 );
+                                self.metrics.round_executions.inc(Status::Failure);
                                 // Leave the round open so a subsequent signature above threshold
                                 // can retrigger execution.
                             }
@@ -353,7 +399,7 @@ where
     TC: Creator,
     E: VerificationExecutor<TC::TaskData, VD>,
     V: ValidatorTrait,
-    C: Clock,
+    C: Clock + Metrics,
     VD: FromBlsAggregation + Send + Sync,
 {
     /// Get a reference to the task creator

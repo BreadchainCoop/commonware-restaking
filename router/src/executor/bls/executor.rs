@@ -4,10 +4,12 @@ use alloy_primitives::{Address, Bytes, FixedBytes, U256};
 use anyhow::Result;
 use async_trait::async_trait;
 use commonware_avs_core::bn254::{G1PublicKey, PublicKey, Signature, get_points};
+use commonware_runtime::Metrics;
 use eigen_crypto_bls::convert_to_g1_point;
-use std::{collections::HashMap, future::IntoFuture, str::FromStr};
+use std::{collections::HashMap, future::IntoFuture, str::FromStr, time::Instant};
 use tracing::debug;
 
+use super::metrics::ExecutorMetrics;
 use super::traits::{BlsExecutorTrait, BlsSignatureVerificationHandler};
 use super::types::BlsVerificationData;
 use crate::executor::{ExecutionResult, VerificationData, VerificationExecutor};
@@ -30,6 +32,7 @@ pub struct BlsEigenlayerExecutor<H> {
     registry_coordinator_address: Address,
     contract_handler: H,
     g1_hash_map: HashMap<PublicKey, Address>,
+    metrics: Option<ExecutorMetrics>,
 }
 
 impl<H> BlsEigenlayerExecutor<H> {
@@ -50,7 +53,16 @@ impl<H> BlsEigenlayerExecutor<H> {
             registry_coordinator_address,
             contract_handler,
             g1_hash_map: HashMap::new(),
+            metrics: None,
         }
+    }
+
+    /// Registers executor metrics on `context` (under an `executor` label scope)
+    /// and enables observation of EigenLayer state-retrieval timing and operator
+    /// cache misses.
+    pub fn with_metrics(mut self, context: &impl Metrics) -> Self {
+        self.metrics = Some(ExecutorMetrics::new(context));
+        self
     }
 }
 
@@ -182,6 +194,10 @@ impl<H: BlsSignatureVerificationHandler> BlsExecutorTrait<H::TaskData>
 
         let msg_hash = FixedBytes::<32>::from_slice(payload_hash);
 
+        // Measures the full EigenLayer read stretch: operator-address resolution,
+        // the current-block query, and the non-signer stakes/signature retrieval.
+        let retrieval_start = Instant::now();
+
         // Resolve an operator address for every participant.
         //
         // Phase 1: take cache hits synchronously. Cache misses — the first round,
@@ -212,6 +228,9 @@ impl<H: BlsSignatureVerificationHandler> BlsExecutorTrait<H::TaskData>
                 cache_misses = misses.len(),
                 "resolving operator addresses for cache misses in parallel"
             );
+            if let Some(m) = &self.metrics {
+                m.operator_cache_misses.inc_by(misses.len() as u64);
+            }
             let calls: Vec<_> = misses
                 .iter()
                 .map(|(_, _, hash)| self.bls_apk_registry.pubkeyHashToOperator(*hash))
@@ -259,6 +278,11 @@ impl<H: BlsSignatureVerificationHandler> BlsExecutorTrait<H::TaskData>
         let non_signer_return = getNonSignerStakesAndSignatureReturn {
             _0: non_signer_result,
         };
+
+        if let Some(m) = &self.metrics {
+            m.state_retrieval
+                .observe(retrieval_start.elapsed().as_secs_f64());
+        }
 
         // Delegate the contract-specific execution to the handler
         let result = self
