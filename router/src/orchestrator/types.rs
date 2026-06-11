@@ -224,7 +224,7 @@ where
                         // Get contributor
                         let Some(contributor) = self.ordered_contributors.get(&sender) else {
                             info!("Received message from unknown sender: {:?}", sender);
-                            self.metrics.signatures.inc(Status::Invalid);
+                            self.metrics.signatures.inc(Status::Dropped);
                             continue;
                         };
 
