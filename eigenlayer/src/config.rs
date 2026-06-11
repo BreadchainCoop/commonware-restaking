@@ -23,7 +23,7 @@ pub struct ContractAddresses {
 impl AvsDeployment {
     pub fn load() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let deployment_path =
-            env::var("AVS_DEPLOYMENT_PATH").expect("AVS_DEPLOYMENT_PATH must be set");
+            env::var("AVS_DEPLOYMENT_PATH").map_err(|_| "AVS_DEPLOYMENT_PATH must be set")?;
         let content = fs::read_to_string(deployment_path)?;
         let deployment: AvsDeployment = serde_json::from_str(&content)?;
         Ok(deployment)
