@@ -22,3 +22,10 @@ commonware-runtime = { workspace = true }
 commonware-utils = { workspace = true }
 eigen-crypto-bn254 = { workspace = true }
 rand = { workspace = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "bls_aggregation"
+harness = false
