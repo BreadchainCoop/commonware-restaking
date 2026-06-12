@@ -20,16 +20,16 @@ RUN mkdir -p core/src core/benches bindings/src eigenlayer/src router/src node/s
     examples/counter/bindings/src examples/counter/common/src \
     examples/counter/router/src examples/counter/node/src \
     && echo 'pub fn _placeholder(){}' > core/src/lib.rs \
-    && echo 'fn main(){}' > core/benches/bls_aggregation.rs \
     && echo 'pub fn _placeholder(){}' > bindings/src/lib.rs \
     && echo 'pub fn _placeholder(){}' > eigenlayer/src/lib.rs \
     && echo 'pub fn _placeholder(){}' > router/src/lib.rs \
     && echo 'pub fn _placeholder(){}' > node/src/lib.rs \
-    && echo 'fn main(){}' > scripts/src/main.rs \
     && echo 'pub fn _placeholder(){}' > examples/counter/bindings/src/lib.rs \
     && echo 'pub fn _placeholder(){}' > examples/counter/common/src/lib.rs \
     && echo 'fn main(){}' > examples/counter/router/src/app.rs \
     && echo 'fn main(){}' > examples/counter/node/src/app.rs \
+    && echo 'fn main(){}' > core/benches/bls_aggregation.rs \
+    && echo 'fn main(){}' > scripts/src/main.rs \
     && cargo fetch
 
 # Copy sources needed to build the router package
