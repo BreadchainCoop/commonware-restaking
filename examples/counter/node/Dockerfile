@@ -23,10 +23,11 @@ COPY examples/counter/node/Cargo.toml ./examples/counter/node/Cargo.toml
 COPY examples/counter/router/Cargo.toml ./examples/counter/router/Cargo.toml
 
 # Create placeholder targets for workspace members so Cargo can resolve manifests
-RUN mkdir -p core/src bindings/src eigenlayer/src router/src node/src scripts/src \
+RUN mkdir -p core/src core/benches bindings/src eigenlayer/src router/src node/src scripts/src \
     examples/counter/bindings/src examples/counter/common/src \
     examples/counter/node/src examples/counter/router/src \
     && echo 'pub fn _placeholder(){}' > core/src/lib.rs \
+    && echo 'fn main(){}' > core/benches/bls_aggregation.rs \
     && echo 'pub fn _placeholder(){}' > bindings/src/lib.rs \
     && echo 'pub fn _placeholder(){}' > eigenlayer/src/lib.rs \
     && echo 'pub fn _placeholder(){}' > router/src/lib.rs \
