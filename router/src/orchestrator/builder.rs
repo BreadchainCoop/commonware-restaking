@@ -170,8 +170,8 @@ impl<C: Clock + Metrics> OrchestratorBuilder<C> {
         }
 
         // Check for aggregation timeout (supports fractional seconds)
-        if let Ok(freq) = std::env::var("AGGREGATION_TIMEOUT")
-            && let Ok(seconds) = freq.parse::<f64>()
+        if let Ok(timeout) = std::env::var("AGGREGATION_TIMEOUT")
+            && let Ok(seconds) = timeout.parse::<f64>()
         {
             self.config.aggregation_timeout = Duration::from_secs_f64(seconds);
             info!(
