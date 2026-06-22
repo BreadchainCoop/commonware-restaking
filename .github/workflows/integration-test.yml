@@ -198,7 +198,6 @@ jobs:
           fi
 
       - name: Test with fast aggregation timeout
-        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
         run: |
           echo "Testing with fast aggregation timeout (0.5 seconds)..."
 
@@ -252,7 +251,6 @@ jobs:
           fi
 
       - name: Test with ingress enabled
-        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
         run: |
           echo "Testing with ingress enabled..."
 
