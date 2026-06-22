@@ -197,13 +197,12 @@ jobs:
             exit 1
           fi
 
-      - name: Test with fast aggregation frequency
-        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+      - name: Test with fast aggregation timeout
         run: |
-          echo "Testing with fast aggregation frequency (0.5 seconds)..."
+          echo "Testing with fast aggregation timeout (0.5 seconds)..."
 
-          # Update the .env file to set fast aggregation
-          echo "AGGREGATION_FREQUENCY=0.5" >> .env
+          # Update the .env file to set fast aggregation timeout
+          echo "AGGREGATION_TIMEOUT=0.5" >> .env
 
           # Recreate only the router container to pick up new environment variables
           # Note: We stop and remove the router, then recreate it with --no-deps
@@ -252,7 +251,6 @@ jobs:
           fi
 
       - name: Test with ingress enabled
-        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
         run: |
           echo "Testing with ingress enabled..."
 

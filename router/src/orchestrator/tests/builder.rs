@@ -25,7 +25,7 @@ async fn test_builder_new() {
     let config = builder.get_config().expect("Failed to get config");
     assert_eq!(config.contributors.len(), 3);
     assert_eq!(config.g1_map.len(), 3);
-    assert_eq!(config.config.aggregation_frequency, Duration::from_secs(30));
+    assert_eq!(config.config.aggregation_timeout, Duration::from_secs(30));
     assert_eq!(config.config.threshold, 3);
 }
 
@@ -75,19 +75,19 @@ async fn test_builder_with_threshold() {
 }
 
 #[tokio::test]
-async fn test_builder_with_aggregation_frequency() {
+async fn test_builder_with_aggregation_timeout() {
     let clock = MockClock::new();
     let signer = signer::create_test_signer();
     let (contributors, g1_map) = contributor::create_test_contributors();
-    let frequency = Duration::from_secs(60);
+    let timeout = Duration::from_secs(60);
 
     let builder = OrchestratorBuilder::new(clock.clone(), signer)
         .with_contributors(contributors)
         .with_g1_map(g1_map)
-        .with_aggregation_frequency(frequency);
+        .with_aggregation_timeout(timeout);
 
     let config = builder.get_config().expect("Failed to get config");
-    assert_eq!(config.config.aggregation_frequency, frequency);
+    assert_eq!(config.config.aggregation_timeout, timeout);
 }
 
 #[tokio::test]
@@ -117,7 +117,7 @@ async fn test_builder_load_from_env() {
     unsafe {
         std::env::set_var("INGRESS", "true");
         std::env::set_var("INGRESS_ADDRESS", "0.0.0.0:9090");
-        std::env::set_var("AGGREGATION_FREQUENCY", "45");
+        std::env::set_var("AGGREGATION_TIMEOUT", "45");
         std::env::set_var("THRESHOLD", "7");
     }
 
@@ -129,14 +129,14 @@ async fn test_builder_load_from_env() {
     let config = builder.get_config().expect("Failed to get config");
     assert!(config.config.use_ingress);
     assert_eq!(config.config.ingress_address, "0.0.0.0:9090");
-    assert_eq!(config.config.aggregation_frequency, Duration::from_secs(45));
+    assert_eq!(config.config.aggregation_timeout, Duration::from_secs(45));
     assert_eq!(config.config.threshold, 7);
 
     // Clean up environment variables
     unsafe {
         std::env::remove_var("INGRESS");
         std::env::remove_var("INGRESS_ADDRESS");
-        std::env::remove_var("AGGREGATION_FREQUENCY");
+        std::env::remove_var("AGGREGATION_TIMEOUT");
         std::env::remove_var("THRESHOLD");
     }
 }
@@ -193,14 +193,14 @@ async fn test_builder_get_config() {
         .with_contributors(contributors.clone())
         .with_g1_map(g1_map.clone())
         .with_threshold(5)
-        .with_aggregation_frequency(Duration::from_secs(60));
+        .with_aggregation_timeout(Duration::from_secs(60));
 
     let config = builder.get_config().expect("Failed to get config");
 
     assert_eq!(config.contributors.len(), 3);
     assert_eq!(config.g1_map.len(), 3);
     assert_eq!(config.config.threshold, 5);
-    assert_eq!(config.config.aggregation_frequency, Duration::from_secs(60));
+    assert_eq!(config.config.aggregation_timeout, Duration::from_secs(60));
 }
 
 #[tokio::test]

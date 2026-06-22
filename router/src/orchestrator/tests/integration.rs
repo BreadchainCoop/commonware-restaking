@@ -25,7 +25,7 @@ async fn test_orchestrator_builder_integration() {
         .with_contributors(contributors.clone())
         .with_g1_map(g1_map.clone())
         .with_threshold(2)
-        .with_aggregation_frequency(Duration::from_millis(100))
+        .with_aggregation_timeout(Duration::from_millis(100))
         .with_ingress("127.0.0.1:8080".to_string());
 
     let task_creator = MockCreator::<TestTaskData>::new();
@@ -125,7 +125,7 @@ async fn test_orchestrator_config_integration() {
         .with_contributors(contributors.clone())
         .with_g1_map(g1_map.clone())
         .with_threshold(3)
-        .with_aggregation_frequency(Duration::from_secs(60))
+        .with_aggregation_timeout(Duration::from_secs(60))
         .with_ingress("0.0.0.0:9090".to_string());
 
     let task_creator = MockCreator::<TestTaskData>::new();
@@ -191,7 +191,7 @@ async fn test_orchestrator_environment_integration() {
     unsafe {
         std::env::set_var("INGRESS", "true");
         std::env::set_var("INGRESS_ADDRESS", "127.0.0.1:7070");
-        std::env::set_var("AGGREGATION_FREQUENCY", "120");
+        std::env::set_var("AGGREGATION_TIMEOUT", "120");
         std::env::set_var("THRESHOLD", "2");
     }
 
@@ -221,7 +221,7 @@ async fn test_orchestrator_environment_integration() {
     unsafe {
         std::env::remove_var("INGRESS");
         std::env::remove_var("INGRESS_ADDRESS");
-        std::env::remove_var("AGGREGATION_FREQUENCY");
+        std::env::remove_var("AGGREGATION_TIMEOUT");
         std::env::remove_var("THRESHOLD");
     }
 }
@@ -295,7 +295,7 @@ async fn test_executor_called_exactly_once_after_threshold() {
         .with_contributors(contributors)
         .with_g1_map(g1_map)
         .with_threshold(2)
-        .with_aggregation_frequency(Duration::from_millis(100));
+        .with_aggregation_timeout(Duration::from_millis(100));
 
     let executor = MockExecutor::new();
     let exec_count = executor.execution_count_handle();
@@ -406,7 +406,7 @@ async fn test_orchestrator_passes_typed_bls_data() {
         .with_contributors(contributors)
         .with_g1_map(g1_map)
         .with_threshold(2)
-        .with_aggregation_frequency(Duration::from_millis(100));
+        .with_aggregation_timeout(Duration::from_millis(100));
 
     let received = Arc::new(Mutex::new(None));
     let received_round = Arc::new(Mutex::new(None));
@@ -499,7 +499,7 @@ async fn test_metrics_observed_on_quorum_path() {
         .with_contributors(contributors)
         .with_g1_map(g1_map)
         .with_threshold(2)
-        .with_aggregation_frequency(Duration::from_millis(100));
+        .with_aggregation_timeout(Duration::from_millis(100));
 
     let orchestrator = builder
         .build(
@@ -574,7 +574,7 @@ async fn test_metrics_round_timeout_counted() {
         .with_contributors(contributors)
         .with_g1_map(g1_map)
         .with_threshold(2)
-        .with_aggregation_frequency(Duration::from_millis(100));
+        .with_aggregation_timeout(Duration::from_millis(100));
 
     let orchestrator = builder
         .build(

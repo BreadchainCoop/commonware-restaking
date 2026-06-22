@@ -28,8 +28,8 @@ pub struct OrchestratorBuilderConfig<C: Clock + Metrics> {
 /// to construct an orchestrator instance.
 #[derive(Debug, Clone)]
 pub struct OrchestratorConfig {
-    /// The aggregation frequency (how often to create new rounds)
-    pub aggregation_frequency: Duration,
+    /// Max duration to wait for operator signatures before abandoning a round
+    pub aggregation_timeout: Duration,
     /// The threshold number of signatures required for aggregation
     pub threshold: usize,
     /// Whether to use ingress mode (HTTP server for external requests)
@@ -41,7 +41,7 @@ pub struct OrchestratorConfig {
 impl Default for OrchestratorConfig {
     fn default() -> Self {
         Self {
-            aggregation_frequency: Duration::from_secs(30),
+            aggregation_timeout: Duration::from_secs(30),
             threshold: 3,
             use_ingress: false,
             ingress_address: "0.0.0.0:8080".to_string(),
@@ -106,16 +106,16 @@ impl<C: Clock + Metrics> OrchestratorBuilder<C> {
         self
     }
 
-    /// Sets the aggregation frequency.
+    /// Sets the aggregation timeout.
     ///
     /// # Arguments
-    /// * `frequency` - The frequency at which to create new rounds
+    /// * `timeout` - Max duration to wait for operator signatures before abandoning a round
     ///
     /// # Returns
     /// * `Self` - The builder for method chaining
     #[allow(dead_code)]
-    pub fn with_aggregation_frequency(mut self, frequency: Duration) -> Self {
-        self.config.aggregation_frequency = frequency;
+    pub fn with_aggregation_timeout(mut self, timeout: Duration) -> Self {
+        self.config.aggregation_timeout = timeout;
         self
     }
 
@@ -150,7 +150,7 @@ impl<C: Clock + Metrics> OrchestratorBuilder<C> {
     /// This method reads configuration from environment variables:
     /// - `INGRESS`: If set to "true", enables ingress mode
     /// - `INGRESS_ADDRESS`: The HTTP server address (defaults to "0.0.0.0:8080")
-    /// - `AGGREGATION_FREQUENCY`: The aggregation frequency in seconds (defaults to 30)
+    /// - `AGGREGATION_TIMEOUT`: The aggregation timeout in seconds (defaults to 30)
     /// - `THRESHOLD`: The signature threshold (defaults to 3)
     ///
     /// # Returns
@@ -169,13 +169,13 @@ impl<C: Clock + Metrics> OrchestratorBuilder<C> {
             self.config.ingress_address = address;
         }
 
-        // Check for aggregation frequency (supports fractional seconds)
-        if let Ok(freq) = std::env::var("AGGREGATION_FREQUENCY")
-            && let Ok(seconds) = freq.parse::<f64>()
+        // Check for aggregation timeout (supports fractional seconds)
+        if let Ok(timeout) = std::env::var("AGGREGATION_TIMEOUT")
+            && let Ok(seconds) = timeout.parse::<f64>()
         {
-            self.config.aggregation_frequency = Duration::from_secs_f64(seconds);
+            self.config.aggregation_timeout = Duration::from_secs_f64(seconds);
             info!(
-                "Aggregation frequency set to {} seconds from environment",
+                "Aggregation timeout set to {} seconds from environment",
                 seconds
             );
         }
@@ -223,7 +223,7 @@ impl<C: Clock + Metrics> OrchestratorBuilder<C> {
         info!(
             contributors = self.contributors.len(),
             threshold = self.config.threshold,
-            aggregation_frequency = ?self.config.aggregation_frequency,
+            aggregation_timeout = ?self.config.aggregation_timeout,
             use_ingress = self.config.use_ingress,
             "Validated orchestrator configuration"
         );
@@ -287,12 +287,12 @@ impl<C: Clock + Metrics> OrchestratorBuilder<C> {
         info!(
             contributors = self.contributors.len(),
             threshold = self.config.threshold,
-            aggregation_frequency = ?self.config.aggregation_frequency,
+            aggregation_timeout = ?self.config.aggregation_timeout,
             "Building generic orchestrator"
         );
 
         let config = crate::orchestrator::types::OrchestratorConfig {
-            aggregation_frequency: self.config.aggregation_frequency,
+            aggregation_timeout: self.config.aggregation_timeout,
             contributors: self.contributors,
             g1_map: self.g1_map,
             threshold: self.config.threshold,

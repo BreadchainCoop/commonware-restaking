@@ -28,7 +28,7 @@ use crate::orchestrator::traits::OrchestratorTrait;
 /// Configuration for the generic orchestrator
 #[derive(Debug, Clone)]
 pub struct OrchestratorConfig {
-    pub aggregation_frequency: Duration,
+    pub aggregation_timeout: Duration,
     pub contributors: Vec<PublicKey>,
     pub g1_map: HashMap<PublicKey, G1PublicKey>,
     pub threshold: usize,
@@ -58,7 +58,7 @@ where
     runtime: C,
     #[allow(dead_code)]
     signer: Bn254,
-    aggregation_frequency: Duration,
+    aggregation_timeout: Duration,
     contributors: Vec<PublicKey>,
     g1_map: HashMap<PublicKey, G1PublicKey>, // g2 (PublicKey) -> g1 (PublicKey)
     ordered_contributors: HashMap<PublicKey, usize>,
@@ -121,7 +121,7 @@ where
         Self {
             runtime,
             signer,
-            aggregation_frequency: config.aggregation_frequency,
+            aggregation_timeout: config.aggregation_timeout,
             contributors,
             g1_map: config.g1_map,
             ordered_contributors,
@@ -207,7 +207,7 @@ where
             }
 
             // Listen for messages until the next broadcast
-            let continue_time = self.runtime.current() + self.aggregation_frequency;
+            let continue_time = self.runtime.current() + self.aggregation_timeout;
             loop {
                 select! {
                     _ = self.runtime.sleep_until(continue_time) => {
@@ -370,7 +370,7 @@ where
                                 executed_rounds.clear();
                                 executed_rounds.insert(msg.round);
                                 // Return to the outer loop immediately so the next queued task is
-                                // fetched without waiting out `aggregation_frequency`. If a chain-polling
+                                // fetched without waiting out `aggregation_timeout`. If a chain-polling
                                 // creator re-returns this same round, the `executed_rounds` branch at the
                                 // top of the outer loop avoids re-broadcasting Start (sleeping up to 2s
                                 // when idle while still draining the receiver to prevent buffer build-up).
