@@ -191,7 +191,7 @@ async fn test_orchestrator_environment_integration() {
     unsafe {
         std::env::set_var("INGRESS", "true");
         std::env::set_var("INGRESS_ADDRESS", "127.0.0.1:7070");
-        std::env::set_var("AGGREGATION_FREQUENCY", "120");
+        std::env::set_var("AGGREGATION_TIMEOUT", "120");
         std::env::set_var("THRESHOLD", "2");
     }
 
@@ -221,7 +221,7 @@ async fn test_orchestrator_environment_integration() {
     unsafe {
         std::env::remove_var("INGRESS");
         std::env::remove_var("INGRESS_ADDRESS");
-        std::env::remove_var("AGGREGATION_FREQUENCY");
+        std::env::remove_var("AGGREGATION_TIMEOUT");
         std::env::remove_var("THRESHOLD");
     }
 }

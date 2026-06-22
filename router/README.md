@@ -37,7 +37,7 @@ Required environment variables:
 - `PRIVATE_KEY`: Private key for transactions. **NOTE:** Address must be funded on Sepolia testnet
 
 Optional environment variables:
-- `AGGREGATION_FREQUENCY`: Signature aggregation frequency in seconds, supports fractional values (default: 30)
+- `AGGREGATION_TIMEOUT`: Aggregation timeout in seconds — max wait per round before declaring it stalled, supports fractional values (default: 30)
   - Examples: `30` (30 seconds), `1` (1 second), `0.1` (100ms), `0.5` (500ms)
 - `THRESHOLD`: Minimum signatures required for aggregation
 - `INGRESS`: Enable HTTP ingress mode (true/false)
@@ -67,7 +67,7 @@ services:
       - WS_RPC=${WS_RPC}
       - AVS_DEPLOYMENT_PATH=/app/config/avs_deploy.json
       - PRIVATE_KEY=${PRIVATE_KEY}
-      - AGGREGATION_FREQUENCY=${AGGREGATION_FREQUENCY:-30}
+      - AGGREGATION_TIMEOUT=${AGGREGATION_TIMEOUT:-30}
       - CONTRIBUTOR_1_KEYFILE=/app/keys/contributor1.bls.key.json
       - CONTRIBUTOR_2_KEYFILE=/app/keys/contributor2.bls.key.json
       - CONTRIBUTOR_3_KEYFILE=/app/keys/contributor3.bls.key.json

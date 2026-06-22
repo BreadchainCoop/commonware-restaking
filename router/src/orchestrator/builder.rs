@@ -150,7 +150,7 @@ impl<C: Clock + Metrics> OrchestratorBuilder<C> {
     /// This method reads configuration from environment variables:
     /// - `INGRESS`: If set to "true", enables ingress mode
     /// - `INGRESS_ADDRESS`: The HTTP server address (defaults to "0.0.0.0:8080")
-    /// - `AGGREGATION_FREQUENCY`: The aggregation frequency in seconds (defaults to 30)
+    /// - `AGGREGATION_TIMEOUT`: The aggregation timeout in seconds (defaults to 30)
     /// - `THRESHOLD`: The signature threshold (defaults to 3)
     ///
     /// # Returns
@@ -169,13 +169,13 @@ impl<C: Clock + Metrics> OrchestratorBuilder<C> {
             self.config.ingress_address = address;
         }
 
-        // Check for aggregation frequency (supports fractional seconds)
-        if let Ok(freq) = std::env::var("AGGREGATION_FREQUENCY")
+        // Check for aggregation timeout (supports fractional seconds)
+        if let Ok(freq) = std::env::var("AGGREGATION_TIMEOUT")
             && let Ok(seconds) = freq.parse::<f64>()
         {
             self.config.aggregation_frequency = Duration::from_secs_f64(seconds);
             info!(
-                "Aggregation frequency set to {} seconds from environment",
+                "Aggregation timeout set to {} seconds from environment",
                 seconds
             );
         }

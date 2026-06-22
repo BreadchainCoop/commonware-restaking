@@ -117,7 +117,7 @@ async fn test_builder_load_from_env() {
     unsafe {
         std::env::set_var("INGRESS", "true");
         std::env::set_var("INGRESS_ADDRESS", "0.0.0.0:9090");
-        std::env::set_var("AGGREGATION_FREQUENCY", "45");
+        std::env::set_var("AGGREGATION_TIMEOUT", "45");
         std::env::set_var("THRESHOLD", "7");
     }
 
@@ -136,7 +136,7 @@ async fn test_builder_load_from_env() {
     unsafe {
         std::env::remove_var("INGRESS");
         std::env::remove_var("INGRESS_ADDRESS");
-        std::env::remove_var("AGGREGATION_FREQUENCY");
+        std::env::remove_var("AGGREGATION_TIMEOUT");
         std::env::remove_var("THRESHOLD");
     }
 }
