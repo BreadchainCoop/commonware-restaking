@@ -79,15 +79,15 @@ async fn test_builder_with_aggregation_timeout() {
     let clock = MockClock::new();
     let signer = signer::create_test_signer();
     let (contributors, g1_map) = contributor::create_test_contributors();
-    let frequency = Duration::from_secs(60);
+    let timeout = Duration::from_secs(60);
 
     let builder = OrchestratorBuilder::new(clock.clone(), signer)
         .with_contributors(contributors)
         .with_g1_map(g1_map)
-        .with_aggregation_timeout(frequency);
+        .with_aggregation_timeout(timeout);
 
     let config = builder.get_config().expect("Failed to get config");
-    assert_eq!(config.config.aggregation_timeout, frequency);
+    assert_eq!(config.config.aggregation_timeout, timeout);
 }
 
 #[tokio::test]
