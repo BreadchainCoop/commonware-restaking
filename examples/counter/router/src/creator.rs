@@ -33,6 +33,17 @@ impl Creator for CounterCreator {
         Ok((payload, round))
     }
 
+    async fn wait_for_new_round(&self, current: u64) -> Result<(Vec<u8>, u64)> {
+        loop {
+            let round = self.provider.get_current_round().await?;
+            if round > current {
+                let payload = self.provider.encode_round(round);
+                return Ok((payload, round));
+            }
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        }
+    }
+
     fn get_task_metadata(&self) -> Self::TaskData {
         CounterTaskData::default()
     }
@@ -94,6 +105,19 @@ impl<Q: TaskQueue + Send + Sync + 'static> Creator for ListeningCounterCreator<Q
         Ok((payload, round))
     }
 
+    async fn wait_for_new_round(&self, current: u64) -> Result<(Vec<u8>, u64)> {
+        use tokio::time::{Duration, sleep};
+        loop {
+            let _task = self.wait_for_task().await?;
+            let round = self.provider.get_current_round().await?;
+            if round > current {
+                let payload = self.provider.encode_round(round);
+                return Ok((payload, round));
+            }
+            sleep(Duration::from_millis(self.config.polling_interval_ms)).await;
+        }
+    }
+
     fn get_task_metadata(&self) -> Self::TaskData {
         if let Ok(current_task) = self.current_task.lock()
             && let Some(ref task) = *current_task
@@ -137,6 +161,13 @@ impl Creator for CounterCreatorType {
         match self {
             CounterCreatorType::Basic(creator) => creator.get_payload_and_round().await,
             CounterCreatorType::Listening(creator) => creator.get_payload_and_round().await,
+        }
+    }
+
+    async fn wait_for_new_round(&self, current: u64) -> Result<(Vec<u8>, u64)> {
+        match self {
+            CounterCreatorType::Basic(creator) => creator.wait_for_new_round(current).await,
+            CounterCreatorType::Listening(creator) => creator.wait_for_new_round(current).await,
         }
     }
 

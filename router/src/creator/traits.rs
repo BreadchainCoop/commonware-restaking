@@ -10,6 +10,12 @@ pub trait Creator: Send + Sync {
     /// Compute and return the payload bytes and associated round.
     async fn get_payload_and_round(&self) -> Result<(Vec<u8>, u64)>;
 
+    /// Block until the round advances past `current`, then return the new payload and round.
+    ///
+    /// Implementations poll their underlying data source at an appropriate interval. The
+    /// returned round is guaranteed to be strictly greater than `current`.
+    async fn wait_for_new_round(&self, current: u64) -> Result<(Vec<u8>, u64)>;
+
     /// Get task metadata as the creator's specific data type.
     ///
     /// These metadata fields are used in the wire protocol messages and are typically
