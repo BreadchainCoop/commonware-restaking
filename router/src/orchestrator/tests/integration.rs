@@ -5,14 +5,79 @@ use crate::executor::bls::BlsVerificationData;
 use crate::executor::{ExecutionResult, MockExecutor, VerificationExecutor};
 use crate::orchestrator::builder::OrchestratorBuilder;
 use crate::orchestrator::traits::OrchestratorTrait;
+use anyhow::Result;
 use async_trait::async_trait;
 use commonware_avs_core::validator::MockValidator;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use super::helpers::{contributor, signer};
 use super::mocks::clock::MockClock;
 use super::mocks::{MockReceiver, MockSender};
+
+/// Wraps a `MockCreator` and separately counts calls to `get_payload_and_round` vs
+/// `wait_for_new_round`. Used to assert that the orchestrator does not re-call
+/// `get_payload_and_round` after a successful execution (the double-consume bug).
+struct TrackingCreator {
+    inner: MockCreator<TestTaskData>,
+    get_count: Arc<AtomicUsize>,
+    wait_count: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl Creator for TrackingCreator {
+    type TaskData = TestTaskData;
+
+    async fn get_payload_and_round(&self) -> Result<(Vec<u8>, u64)> {
+        self.get_count.fetch_add(1, Ordering::SeqCst);
+        self.inner.get_payload_and_round().await
+    }
+
+    async fn wait_for_new_round(&self, current: u64) -> Result<(Vec<u8>, u64)> {
+        self.wait_count.fetch_add(1, Ordering::SeqCst);
+        self.inner.wait_for_new_round(current).await
+    }
+
+    fn get_task_metadata(&self) -> TestTaskData {
+        self.inner.get_task_metadata()
+    }
+}
+
+/// Returns `Err` on the first call to `wait_for_new_round`, then delegates to the inner
+/// creator. Used to assert that the orchestrator handles the error gracefully (no panic)
+/// rather than unwrapping.
+struct ErrorOnceCreator {
+    inner: MockCreator<TestTaskData>,
+    first_wait: Arc<Mutex<bool>>,
+}
+
+#[async_trait]
+impl Creator for ErrorOnceCreator {
+    type TaskData = TestTaskData;
+
+    async fn get_payload_and_round(&self) -> Result<(Vec<u8>, u64)> {
+        self.inner.get_payload_and_round().await
+    }
+
+    async fn wait_for_new_round(&self, current: u64) -> Result<(Vec<u8>, u64)> {
+        let is_first = {
+            let mut guard = self.first_wait.lock().unwrap();
+            let was = *guard;
+            *guard = false;
+            was
+        };
+        if is_first {
+            Err(anyhow::anyhow!("simulated queue timeout"))
+        } else {
+            self.inner.wait_for_new_round(current).await
+        }
+    }
+
+    fn get_task_metadata(&self) -> TestTaskData {
+        self.inner.get_task_metadata()
+    }
+}
 
 #[tokio::test]
 async fn test_orchestrator_builder_integration() {
@@ -617,6 +682,187 @@ async fn test_metrics_round_timeout_counted() {
             "expected `{expected}` in encoded metrics:\n{encoded}"
         );
     }
+
+    drop(msg_tx);
+    handle.abort();
+}
+
+/// After a successful execution the orchestrator must use the `(payload, round)` returned by
+/// `wait_for_new_round` directly for the next broadcast rather than discarding that result and
+/// calling `get_payload_and_round` a second time. Calling `get_payload_and_round` an extra
+/// time per executed round causes double-consumption of queue-backed creators:
+/// `ListeningCounterCreator` pops a task from the shared queue on every call, so the extra
+/// call silently discards the task that should drive the next round.
+#[tokio::test(start_paused = true)]
+async fn test_get_payload_not_recalled_after_execution() {
+    use alloy::primitives::U256;
+    use alloy::sol_types::SolValue;
+    use bytes::Bytes;
+    use commonware_avs_core::wire::{Aggregation, aggregation::Payload};
+    use commonware_codec::{EncodeSize, Write};
+    use commonware_cryptography::{Hasher, Sha256, Signer};
+    use tokio::sync::mpsc::unbounded_channel;
+
+    let clock = MockClock::new();
+    let orchestrator_signer = signer::create_test_signer();
+    let (contributors, g1_map, contributor_signers) =
+        contributor::create_test_contributors_with_signers();
+
+    let get_count = Arc::new(AtomicUsize::new(0));
+    let wait_count = Arc::new(AtomicUsize::new(0));
+
+    let creator = TrackingCreator {
+        inner: MockCreator::<TestTaskData>::new(),
+        get_count: get_count.clone(),
+        wait_count: wait_count.clone(),
+    };
+
+    // Long aggregation timeout so round 2 does not time out before we snapshot counts.
+    let builder = OrchestratorBuilder::new(clock, orchestrator_signer)
+        .with_contributors(contributors)
+        .with_g1_map(g1_map)
+        .with_threshold(2)
+        .with_aggregation_timeout(Duration::from_secs(10));
+
+    let executor = MockExecutor::new();
+    let validator = MockValidator::new_success(1);
+
+    let orchestrator = builder
+        .build(creator, executor, validator)
+        .expect("failed to build orchestrator");
+
+    // MockValidator::new_success(1) always returns Sha256(U256::from(1).abi_encode()).
+    let expected_digest = {
+        let payload = U256::from(1u64).abi_encode();
+        let mut hasher = Sha256::new();
+        hasher.update(&payload);
+        hasher.finalize()
+    };
+
+    let (msg_tx, msg_rx) = unbounded_channel::<(commonware_avs_core::bn254::PublicKey, Bytes)>();
+    for contributor_signer in contributor_signers.iter().take(2) {
+        let sig = contributor_signer.sign(None, expected_digest.as_ref());
+        let msg = Aggregation::<TestTaskData>::new(
+            1,
+            TestTaskData::default(),
+            Some(Payload::Signature(sig.to_vec())),
+        );
+        let mut buf = Vec::with_capacity(msg.encode_size());
+        msg.write(&mut buf);
+        msg_tx
+            .send((contributor_signer.public_key(), Bytes::from(buf)))
+            .unwrap();
+    }
+
+    let handle = tokio::spawn(async move {
+        orchestrator
+            .run(MockSender::new(), MockReceiver::new(msg_rx))
+            .await;
+    });
+
+    // Advance 1 ms — enough to flush the pre-queued channel messages and let execution
+    // fire, but far less than the 10 s aggregation timeout so round 2 has not yet timed
+    // out and triggered another get_payload_and_round call.
+    tokio::task::yield_now().await;
+    tokio::time::advance(Duration::from_millis(1)).await;
+    tokio::task::yield_now().await;
+
+    // get_payload_and_round must have been called exactly once (for round 1).
+    // wait_for_new_round must have been called exactly once (for the round 1 → 2 transition).
+    // If the orchestrator discards the wait_for_new_round result and re-fetches, get_count == 2.
+    assert_eq!(
+        get_count.load(Ordering::SeqCst),
+        1,
+        "get_payload_and_round must not be re-called after execution; \
+         the wait_for_new_round return value must drive the next round"
+    );
+    assert_eq!(
+        wait_count.load(Ordering::SeqCst),
+        1,
+        "wait_for_new_round must be called exactly once after execution"
+    );
+
+    drop(msg_tx);
+    handle.abort();
+}
+
+/// After `wait_for_new_round` returns `Err` the orchestrator must log the error and
+/// retry rather than calling `.unwrap()` and panicking. A panicking orchestrator process
+/// takes the whole service down; for a queue-backed creator an idle queue produces a
+/// timeout error on every inter-round wait, so the panic is not a rare edge case.
+#[tokio::test(start_paused = true)]
+async fn test_orchestrator_survives_wait_for_new_round_error() {
+    use alloy::primitives::U256;
+    use alloy::sol_types::SolValue;
+    use bytes::Bytes;
+    use commonware_avs_core::wire::{Aggregation, aggregation::Payload};
+    use commonware_codec::{EncodeSize, Write};
+    use commonware_cryptography::{Hasher, Sha256, Signer};
+    use tokio::sync::mpsc::unbounded_channel;
+
+    let clock = MockClock::new();
+    let orchestrator_signer = signer::create_test_signer();
+    let (contributors, g1_map, contributor_signers) =
+        contributor::create_test_contributors_with_signers();
+
+    let creator = ErrorOnceCreator {
+        inner: MockCreator::<TestTaskData>::new(),
+        first_wait: Arc::new(Mutex::new(true)),
+    };
+
+    let builder = OrchestratorBuilder::new(clock, orchestrator_signer)
+        .with_contributors(contributors)
+        .with_g1_map(g1_map)
+        .with_threshold(2)
+        .with_aggregation_timeout(Duration::from_secs(10));
+
+    let executor = MockExecutor::new();
+    let validator = MockValidator::new_success(1);
+
+    let orchestrator = builder
+        .build(creator, executor, validator)
+        .expect("failed to build orchestrator");
+
+    let expected_digest = {
+        let payload = U256::from(1u64).abi_encode();
+        let mut hasher = Sha256::new();
+        hasher.update(&payload);
+        hasher.finalize()
+    };
+
+    let (msg_tx, msg_rx) = unbounded_channel::<(commonware_avs_core::bn254::PublicKey, Bytes)>();
+    for contributor_signer in contributor_signers.iter().take(2) {
+        let sig = contributor_signer.sign(None, expected_digest.as_ref());
+        let msg = Aggregation::<TestTaskData>::new(
+            1,
+            TestTaskData::default(),
+            Some(Payload::Signature(sig.to_vec())),
+        );
+        let mut buf = Vec::with_capacity(msg.encode_size());
+        msg.write(&mut buf);
+        msg_tx
+            .send((contributor_signer.public_key(), Bytes::from(buf)))
+            .unwrap();
+    }
+
+    let handle = tokio::spawn(async move {
+        orchestrator
+            .run(MockSender::new(), MockReceiver::new(msg_rx))
+            .await;
+    });
+
+    // Let execution fire and the first wait_for_new_round (which returns Err) run.
+    tokio::task::yield_now().await;
+    tokio::time::advance(Duration::from_millis(1)).await;
+    tokio::task::yield_now().await;
+
+    // The orchestrator must still be alive — not finished due to an unwrap panic.
+    // With the current .unwrap() the spawned task finishes immediately after the panic.
+    assert!(
+        !handle.is_finished(),
+        "orchestrator must not panic on wait_for_new_round error; \
+         it should log and retry instead of calling .unwrap()"
+    );
 
     drop(msg_tx);
     handle.abort();

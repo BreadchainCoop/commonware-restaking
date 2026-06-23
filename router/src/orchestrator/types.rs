@@ -14,7 +14,7 @@ use commonware_runtime::telemetry::metrics::status::{CounterExt, Status};
 use commonware_runtime::{Clock, Metrics};
 use commonware_utils::hex;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     marker::PhantomData,
     time::{Duration, SystemTime},
 };
@@ -149,11 +149,27 @@ where
         mut sender: impl Sender,
         mut receiver: impl Receiver<PublicKey = PublicKey>,
     ) {
+        // Backoff between wait_for_new_round retries; bounds hot-spinning when a creator
+        // fails immediately (e.g. CounterCreator when the provider is temporarily down).
+        const WAIT_RETRY_BACKOFF: Duration = Duration::from_secs(1);
+
         let mut signatures: HashMap<u64, RoundState> = HashMap::new();
-        let mut executed_rounds: HashSet<u64> = HashSet::new();
+        // Carries the (payload, round) returned by wait_for_new_round after a successful
+        // execution so the outer loop can use it directly without an extra get_payload_and_round
+        // call. None on the first iteration and after every aggregation timeout.
+        let mut cached_round: Option<(Vec<u8>, u64)> = None;
 
         loop {
-            let (payload, current_round) = self.task_creator.get_payload_and_round().await.unwrap();
+            let (payload, current_round) = match cached_round.take() {
+                Some(val) => val,
+                None => match self.task_creator.get_payload_and_round().await {
+                    Ok(val) => val,
+                    Err(e) => {
+                        tracing::error!("get_payload_and_round failed: {e}");
+                        continue;
+                    }
+                },
+            };
 
             // Create a new hasher for each iteration
             let mut hasher = Sha256::new();
@@ -164,18 +180,6 @@ where
                 msg = hex(&payload),
                 "generated payload for state"
             );
-
-            // Skip broadcasting for already-executed rounds, but keep servicing the receiver
-            // so late signatures/messages for completed rounds do not build up in the buffer.
-            if executed_rounds.contains(&current_round) {
-                select! {
-                    _ = self.runtime.sleep(Duration::from_secs(2)) => {},
-                    received = receiver.recv() => {
-                        let _ = received;
-                    },
-                }
-                continue;
-            }
 
             // Broadcast payload
             let task_data = self.task_creator.get_task_metadata();
@@ -208,6 +212,7 @@ where
 
             // Listen for messages until the next broadcast
             let continue_time = self.runtime.current() + self.aggregation_timeout;
+            let mut executed_round: Option<u64> = None;
             loop {
                 select! {
                     _ = self.runtime.sleep_until(continue_time) => {
@@ -234,11 +239,6 @@ where
                             self.metrics.signatures.inc(Status::Invalid);
                             continue;
                         };
-                        if executed_rounds.contains(&msg.round) {
-                            info!("Ignoring signature for already-executed round: {} from contributor: {:?}", msg.round, contributor);
-                            self.metrics.signatures.inc(Status::Dropped);
-                            continue;
-                        }
                         let Some(round) = signatures.get_mut(&msg.round) else {
                             info!("Received signature for unknown round: {} from contributor: {:?}", msg.round, contributor);
                             self.metrics.signatures.inc(Status::Dropped);
@@ -360,20 +360,8 @@ where
                                     result
                                 );
                                 self.metrics.round_executions.inc(Status::Success);
-                                // Drop per-round signature state now that this round has finished.
                                 signatures.remove(&msg.round);
-                                // Mark round complete so additional signatures are ignored and the outer
-                                // loop does not re-broadcast Start while waiting for on-chain state to advance.
-                                //
-                                // Rounds advance monotonically, so only the latest executed round needs to
-                                // be retained to suppress duplicate processing without unbounded growth.
-                                executed_rounds.clear();
-                                executed_rounds.insert(msg.round);
-                                // Return to the outer loop immediately so the next queued task is
-                                // fetched without waiting out `aggregation_timeout`. If a chain-polling
-                                // creator re-returns this same round, the `executed_rounds` branch at the
-                                // top of the outer loop avoids re-broadcasting Start (sleeping up to 2s
-                                // when idle while still draining the receiver to prevent buffer build-up).
+                                executed_round = Some(msg.round);
                                 break;
                             },
                             Err(e) => {
@@ -389,6 +377,42 @@ where
                         }
                     },
                 }
+            }
+
+            // After the inner loop exits: if execution succeeded, wait until the on-chain
+            // round advances before broadcasting again. The receiver is drained concurrently
+            // to prevent P2P buffer build-up during the inter-round wait. Transient errors
+            // from wait_for_new_round (e.g. a queue-backed creator timing out between tasks)
+            // are logged and retried rather than panicking.
+            if let Some(ex_round) = executed_round {
+                let mut wait_fut = std::pin::pin!(self.task_creator.wait_for_new_round(ex_round));
+                cached_round = Some(loop {
+                    tokio::select! {
+                        biased;
+                        result = &mut wait_fut => {
+                            match result {
+                                Ok(val) => break val,
+                                Err(e) => {
+                                    tracing::warn!(
+                                        round = ex_round,
+                                        "wait_for_new_round error: {e}; retrying"
+                                    );
+                                    self.runtime
+                                        .sleep_until(
+                                            self.runtime.current() + WAIT_RETRY_BACKOFF,
+                                        )
+                                        .await;
+                                    wait_fut.set(
+                                        self.task_creator.wait_for_new_round(ex_round)
+                                    );
+                                }
+                            }
+                        },
+                        received = receiver.recv() => {
+                            let _ = received;
+                        }
+                    }
+                });
             }
         }
     }
