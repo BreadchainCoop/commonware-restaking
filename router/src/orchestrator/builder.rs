@@ -28,8 +28,13 @@ pub struct OrchestratorBuilderConfig<C: Clock + Metrics> {
 /// to construct an orchestrator instance.
 #[derive(Debug, Clone)]
 pub struct OrchestratorConfig {
-    /// Max duration to wait for operator signatures before abandoning a round
-    pub aggregation_timeout: Duration,
+    /// Max duration to wait for operator signatures before abandoning a round.
+    pub round_timeout: Duration,
+    /// How often to re-send the `Start` broadcast for an in-flight round while waiting
+    /// for signatures. Independent from `round_timeout` so recovery can be fast without
+    /// amplifying `Start` broadcasts. When equal to `round_timeout`, no intra-round
+    /// rebroadcast fires (the round times out first under the biased select).
+    pub rebroadcast_interval: Duration,
     /// The threshold number of signatures required for aggregation
     pub threshold: usize,
     /// Whether to use ingress mode (HTTP server for external requests)
@@ -41,7 +46,8 @@ pub struct OrchestratorConfig {
 impl Default for OrchestratorConfig {
     fn default() -> Self {
         Self {
-            aggregation_timeout: Duration::from_secs(30),
+            round_timeout: Duration::from_secs(30),
+            rebroadcast_interval: Duration::from_secs(30),
             threshold: 3,
             use_ingress: false,
             ingress_address: "0.0.0.0:8080".to_string(),
@@ -106,16 +112,23 @@ impl<C: Clock + Metrics> OrchestratorBuilder<C> {
         self
     }
 
-    /// Sets the aggregation timeout.
+    /// Sets the round timeout.
     ///
-    /// # Arguments
-    /// * `timeout` - Max duration to wait for operator signatures before abandoning a round
-    ///
-    /// # Returns
-    /// * `Self` - The builder for method chaining
+    /// Max duration to wait for operator signatures before abandoning a round.
     #[allow(dead_code)]
-    pub fn with_aggregation_timeout(mut self, timeout: Duration) -> Self {
-        self.config.aggregation_timeout = timeout;
+    pub fn with_round_timeout(mut self, timeout: Duration) -> Self {
+        self.config.round_timeout = timeout;
+        self
+    }
+
+    /// Sets the rebroadcast interval.
+    ///
+    /// How often to re-send the `Start` broadcast for an in-flight round while waiting
+    /// for signatures. Setting this longer than `round_timeout` disables intra-round
+    /// rebroadcasting entirely.
+    #[allow(dead_code)]
+    pub fn with_rebroadcast_interval(mut self, interval: Duration) -> Self {
+        self.config.rebroadcast_interval = interval;
         self
     }
 
@@ -169,13 +182,23 @@ impl<C: Clock + Metrics> OrchestratorBuilder<C> {
             self.config.ingress_address = address;
         }
 
-        // Check for aggregation timeout (supports fractional seconds)
-        if let Ok(timeout) = std::env::var("AGGREGATION_TIMEOUT")
-            && let Ok(seconds) = timeout.parse::<f64>()
+        if let Ok(val) = std::env::var("ROUND_TIMEOUT")
+            && let Ok(seconds) = val.parse::<f64>()
         {
-            self.config.aggregation_timeout = Duration::from_secs_f64(seconds);
+            self.config.round_timeout = Duration::from_secs_f64(seconds);
             info!(
-                "Aggregation timeout set to {} seconds from environment",
+                "round_timeout set to {} seconds from ROUND_TIMEOUT",
+                seconds
+            );
+        }
+
+        // REBROADCAST_INTERVAL overrides only the intra-round Start re-send cadence.
+        if let Ok(val) = std::env::var("REBROADCAST_INTERVAL")
+            && let Ok(seconds) = val.parse::<f64>()
+        {
+            self.config.rebroadcast_interval = Duration::from_secs_f64(seconds);
+            info!(
+                "rebroadcast_interval set to {} seconds from REBROADCAST_INTERVAL",
                 seconds
             );
         }
@@ -223,7 +246,8 @@ impl<C: Clock + Metrics> OrchestratorBuilder<C> {
         info!(
             contributors = self.contributors.len(),
             threshold = self.config.threshold,
-            aggregation_timeout = ?self.config.aggregation_timeout,
+            round_timeout = ?self.config.round_timeout,
+            rebroadcast_interval = ?self.config.rebroadcast_interval,
             use_ingress = self.config.use_ingress,
             "Validated orchestrator configuration"
         );
@@ -287,12 +311,14 @@ impl<C: Clock + Metrics> OrchestratorBuilder<C> {
         info!(
             contributors = self.contributors.len(),
             threshold = self.config.threshold,
-            aggregation_timeout = ?self.config.aggregation_timeout,
+            round_timeout = ?self.config.round_timeout,
+            rebroadcast_interval = ?self.config.rebroadcast_interval,
             "Building generic orchestrator"
         );
 
         let config = crate::orchestrator::types::OrchestratorConfig {
-            aggregation_timeout: self.config.aggregation_timeout,
+            round_timeout: self.config.round_timeout,
+            rebroadcast_interval: self.config.rebroadcast_interval,
             contributors: self.contributors,
             g1_map: self.g1_map,
             threshold: self.config.threshold,

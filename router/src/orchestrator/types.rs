@@ -7,7 +7,6 @@ use commonware_avs_core::validator::ValidatorTrait;
 use commonware_avs_core::wire::{Aggregation, aggregation::Payload};
 use commonware_codec::{EncodeSize, ReadExt, Write};
 use commonware_cryptography::{Hasher, Sha256, Verifier};
-use commonware_macros::select;
 use commonware_p2p::{Receiver, Sender};
 use commonware_runtime::telemetry::metrics::histogram::HistogramExt;
 use commonware_runtime::telemetry::metrics::status::{CounterExt, Status};
@@ -28,7 +27,10 @@ use crate::orchestrator::traits::OrchestratorTrait;
 /// Configuration for the generic orchestrator
 #[derive(Debug, Clone)]
 pub struct OrchestratorConfig {
-    pub aggregation_timeout: Duration,
+    /// Max duration to wait for operator signatures before abandoning a round.
+    pub round_timeout: Duration,
+    /// How often to re-send the `Start` broadcast for an in-flight round.
+    pub rebroadcast_interval: Duration,
     pub contributors: Vec<PublicKey>,
     pub g1_map: HashMap<PublicKey, G1PublicKey>,
     pub threshold: usize,
@@ -58,7 +60,8 @@ where
     runtime: C,
     #[allow(dead_code)]
     signer: Bn254,
-    aggregation_timeout: Duration,
+    round_timeout: Duration,
+    rebroadcast_interval: Duration,
     contributors: Vec<PublicKey>,
     g1_map: HashMap<PublicKey, G1PublicKey>, // g2 (PublicKey) -> g1 (PublicKey)
     ordered_contributors: HashMap<PublicKey, usize>,
@@ -121,7 +124,8 @@ where
         Self {
             runtime,
             signer,
-            aggregation_timeout: config.aggregation_timeout,
+            round_timeout: config.round_timeout,
+            rebroadcast_interval: config.rebroadcast_interval,
             contributors,
             g1_map: config.g1_map,
             ordered_contributors,
@@ -210,14 +214,46 @@ where
                 Entry::Occupied(_) => {}
             }
 
-            // Listen for messages until the next broadcast
-            let continue_time = self.runtime.current() + self.aggregation_timeout;
+            // Collect signatures until the round times out or reaches the threshold.
+            // The rebroadcast timer re-sends `Start` for the same round on a shorter
+            // cadence so nodes that missed the first broadcast can still sign; it is
+            // independent of round_timeout so operators can set a fast recovery window
+            // without flooding the network with Start messages.
+            //
+            // biased: round_timeout is checked first so it wins when both it and the
+            // rebroadcast timer fire simultaneously (round_timeout == rebroadcast_interval),
+            // preserving the original single-knob behaviour.
+            let round_timeout_deadline = self.runtime.current() + self.round_timeout;
             let mut executed_round: Option<u64> = None;
+            let mut rebroadcast_fut = std::pin::pin!(
+                self.runtime
+                    .sleep_until(self.runtime.current() + self.rebroadcast_interval)
+            );
             loop {
-                select! {
-                    _ = self.runtime.sleep_until(continue_time) => {
+                tokio::select! {
+                    biased;
+                    _ = self.runtime.sleep_until(round_timeout_deadline) => {
                         self.metrics.round_timeouts.inc();
                         break;
+                    },
+                    _ = &mut rebroadcast_fut => {
+                        let task_data = self.task_creator.get_task_metadata();
+                        let rebroadcast_msg = Aggregation::<TC::TaskData>::new(
+                            current_round,
+                            task_data,
+                            Some(Payload::Start),
+                        );
+                        let mut buf = Vec::with_capacity(rebroadcast_msg.encode_size());
+                        rebroadcast_msg.write(&mut buf);
+                        sender
+                            .send(commonware_p2p::Recipients::All, Bytes::from(buf), true)
+                            .await
+                            .expect("failed to rebroadcast Start");
+                        self.metrics.round_broadcasts.inc();
+                        rebroadcast_fut.set(
+                            self.runtime
+                                .sleep_until(self.runtime.current() + self.rebroadcast_interval),
+                        );
                     },
                     msg = receiver.recv() => {
                         // Parse message
