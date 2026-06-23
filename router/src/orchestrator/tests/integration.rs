@@ -687,6 +687,78 @@ async fn test_metrics_round_timeout_counted() {
     handle.abort();
 }
 
+/// With a short `round_timeout` and a long `rebroadcast_interval`, the orchestrator
+/// abandons rounds quickly without amplifying `Start` broadcasts.  Each round produces
+/// exactly one broadcast (the initial one); the rebroadcast timer never fires within
+/// any round because `rebroadcast_interval >> round_timeout`.
+///
+/// This is the core safety property of the decoupled knobs: operators can shrink
+/// `round_timeout` for fast recovery without flooding the P2P channel with `Start`
+/// messages.
+#[tokio::test(start_paused = true)]
+async fn test_short_round_timeout_no_rebroadcast_storm() {
+    use bytes::Bytes;
+    use commonware_runtime::Metrics;
+    use tokio::sync::mpsc::unbounded_channel;
+
+    let clock = MockClock::new();
+    let orchestrator_signer = signer::create_test_signer();
+    let (contributors, g1_map) = contributor::create_test_contributors();
+
+    // round_timeout=100ms, rebroadcast_interval=10s: the rebroadcast timer never
+    // fires during any round because the round times out first.
+    let builder = OrchestratorBuilder::new(clock.clone(), orchestrator_signer)
+        .with_contributors(contributors)
+        .with_g1_map(g1_map)
+        .with_threshold(2)
+        .with_round_timeout(Duration::from_millis(100))
+        .with_rebroadcast_interval(Duration::from_secs(10));
+
+    let orchestrator = builder
+        .build(
+            MockCreator::<TestTaskData>::new(),
+            MockExecutor::new(),
+            MockValidator::new_success(1),
+        )
+        .expect("failed to build orchestrator");
+
+    let (msg_tx, msg_rx) = unbounded_channel::<(commonware_avs_core::bn254::PublicKey, Bytes)>();
+
+    let handle = tokio::spawn(async move {
+        orchestrator
+            .run(MockSender::new(), MockReceiver::new(msg_rx))
+            .await;
+    });
+
+    // Each round's timer is registered as tokio::time::sleep(100ms) from the moment
+    // MockClock::sleep_until is called, so it fires 100ms of tokio-time after that
+    // call — not at a fixed absolute offset. To drive N timeouts we must interleave
+    // yield (let the task register the next timer) and advance (fire it).
+    tokio::task::yield_now().await; // round 1 starts, registers sleep(100ms)
+    for _ in 0..3 {
+        tokio::time::advance(Duration::from_millis(100)).await; // fire current round's timer
+        tokio::task::yield_now().await; // process timeout, start next round
+    }
+
+    let encoded = clock.encode();
+
+    // 3 timeouts, 4 rounds started (round 4 open), 4 broadcasts.
+    // broadcasts_total == rounds_started proves exactly one Start per round: no storm.
+    for expected in [
+        "orchestrator_round_timeouts_total 3",
+        "orchestrator_rounds_started_total 4",
+        "orchestrator_round_broadcasts_total 4",
+    ] {
+        assert!(
+            encoded.contains(expected),
+            "expected `{expected}` in encoded metrics:\n{encoded}"
+        );
+    }
+
+    drop(msg_tx);
+    handle.abort();
+}
+
 /// After a successful execution the orchestrator must use the `(payload, round)` returned by
 /// `wait_for_new_round` directly for the next broadcast rather than discarding that result and
 /// calling `get_payload_and_round` a second time. Calling `get_payload_and_round` an extra
