@@ -90,7 +90,7 @@ async fn test_orchestrator_builder_integration() {
         .with_contributors(contributors.clone())
         .with_g1_map(g1_map.clone())
         .with_threshold(2)
-        .with_aggregation_timeout(Duration::from_millis(100))
+        .with_round_timeout(Duration::from_millis(100))
         .with_ingress("127.0.0.1:8080".to_string());
 
     let task_creator = MockCreator::<TestTaskData>::new();
@@ -190,7 +190,7 @@ async fn test_orchestrator_config_integration() {
         .with_contributors(contributors.clone())
         .with_g1_map(g1_map.clone())
         .with_threshold(3)
-        .with_aggregation_timeout(Duration::from_secs(60))
+        .with_round_timeout(Duration::from_secs(60))
         .with_ingress("0.0.0.0:9090".to_string());
 
     let task_creator = MockCreator::<TestTaskData>::new();
@@ -256,7 +256,7 @@ async fn test_orchestrator_environment_integration() {
     unsafe {
         std::env::set_var("INGRESS", "true");
         std::env::set_var("INGRESS_ADDRESS", "127.0.0.1:7070");
-        std::env::set_var("AGGREGATION_TIMEOUT", "120");
+        std::env::set_var("ROUND_TIMEOUT", "120");
         std::env::set_var("THRESHOLD", "2");
     }
 
@@ -286,7 +286,7 @@ async fn test_orchestrator_environment_integration() {
     unsafe {
         std::env::remove_var("INGRESS");
         std::env::remove_var("INGRESS_ADDRESS");
-        std::env::remove_var("AGGREGATION_TIMEOUT");
+        std::env::remove_var("ROUND_TIMEOUT");
         std::env::remove_var("THRESHOLD");
     }
 }
@@ -360,7 +360,7 @@ async fn test_executor_called_exactly_once_after_threshold() {
         .with_contributors(contributors)
         .with_g1_map(g1_map)
         .with_threshold(2)
-        .with_aggregation_timeout(Duration::from_millis(100));
+        .with_round_timeout(Duration::from_millis(100));
 
     let executor = MockExecutor::new();
     let exec_count = executor.execution_count_handle();
@@ -471,7 +471,7 @@ async fn test_orchestrator_passes_typed_bls_data() {
         .with_contributors(contributors)
         .with_g1_map(g1_map)
         .with_threshold(2)
-        .with_aggregation_timeout(Duration::from_millis(100));
+        .with_round_timeout(Duration::from_millis(100));
 
     let received = Arc::new(Mutex::new(None));
     let received_round = Arc::new(Mutex::new(None));
@@ -564,7 +564,7 @@ async fn test_metrics_observed_on_quorum_path() {
         .with_contributors(contributors)
         .with_g1_map(g1_map)
         .with_threshold(2)
-        .with_aggregation_timeout(Duration::from_millis(100));
+        .with_round_timeout(Duration::from_millis(100));
 
     let orchestrator = builder
         .build(
@@ -639,7 +639,7 @@ async fn test_metrics_round_timeout_counted() {
         .with_contributors(contributors)
         .with_g1_map(g1_map)
         .with_threshold(2)
-        .with_aggregation_timeout(Duration::from_millis(100));
+        .with_round_timeout(Duration::from_millis(100));
 
     let orchestrator = builder
         .build(
@@ -722,7 +722,7 @@ async fn test_get_payload_not_recalled_after_execution() {
         .with_contributors(contributors)
         .with_g1_map(g1_map)
         .with_threshold(2)
-        .with_aggregation_timeout(Duration::from_secs(10));
+        .with_round_timeout(Duration::from_secs(10));
 
     let executor = MockExecutor::new();
     let validator = MockValidator::new_success(1);
@@ -814,7 +814,7 @@ async fn test_orchestrator_survives_wait_for_new_round_error() {
         .with_contributors(contributors)
         .with_g1_map(g1_map)
         .with_threshold(2)
-        .with_aggregation_timeout(Duration::from_secs(10));
+        .with_round_timeout(Duration::from_secs(10));
 
     let executor = MockExecutor::new();
     let validator = MockValidator::new_success(1);
@@ -862,6 +862,70 @@ async fn test_orchestrator_survives_wait_for_new_round_error() {
         !handle.is_finished(),
         "orchestrator must not panic on wait_for_new_round error; \
          it should log and retry instead of calling .unwrap()"
+    );
+
+    drop(msg_tx);
+    handle.abort();
+}
+
+/// A `rebroadcast_interval` shorter than `round_timeout` causes `Start` to be re-sent
+/// within the same round.  The rebroadcast count increments independently of timeouts;
+/// the round does not start over (rounds_started stays 1) and no timeout fires.
+#[tokio::test(start_paused = true)]
+async fn test_rebroadcast_fires_before_round_timeout() {
+    use bytes::Bytes;
+    use commonware_runtime::Metrics;
+    use tokio::sync::mpsc::unbounded_channel;
+
+    let clock = MockClock::new();
+    let orchestrator_signer = signer::create_test_signer();
+    let (contributors, g1_map) = contributor::create_test_contributors();
+
+    let builder = OrchestratorBuilder::new(clock.clone(), orchestrator_signer)
+        .with_contributors(contributors)
+        .with_g1_map(g1_map)
+        .with_threshold(2)
+        .with_round_timeout(Duration::from_millis(300))
+        .with_rebroadcast_interval(Duration::from_millis(100));
+
+    let orchestrator = builder
+        .build(
+            MockCreator::<TestTaskData>::new(),
+            MockExecutor::new(),
+            MockValidator::new_success(1),
+        )
+        .expect("failed to build orchestrator");
+
+    let (msg_tx, msg_rx) = unbounded_channel::<(commonware_avs_core::bn254::PublicKey, Bytes)>();
+
+    let handle = tokio::spawn(async move {
+        orchestrator
+            .run(MockSender::new(), MockReceiver::new(msg_rx))
+            .await;
+    });
+
+    // Let the orchestrator register its timers, then advance past the first
+    // rebroadcast_interval (100ms) but well short of round_timeout (300ms).
+    tokio::task::yield_now().await;
+    tokio::time::advance(Duration::from_millis(100)).await;
+    tokio::task::yield_now().await;
+
+    let encoded = clock.encode();
+
+    // The initial broadcast plus one rebroadcast within the same round.
+    assert!(
+        encoded.contains("orchestrator_round_broadcasts_total 2"),
+        "expected two broadcasts (initial + rebroadcast) but got:\n{encoded}"
+    );
+    // The round has not timed out — still on round 1.
+    assert!(
+        encoded.contains("orchestrator_rounds_started_total 1"),
+        "expected round 1 to still be open but got:\n{encoded}"
+    );
+    // No timeout has fired.
+    assert!(
+        !encoded.contains("orchestrator_round_timeouts_total 1"),
+        "expected no timeout yet but got:\n{encoded}"
     );
 
     drop(msg_tx);
