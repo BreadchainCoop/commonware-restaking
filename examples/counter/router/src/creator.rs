@@ -107,6 +107,8 @@ impl<Q: TaskQueue + Send + Sync + 'static> Creator for ListeningCounterCreator<Q
 
     async fn wait_for_new_round(&self, current: u64) -> Result<(Vec<u8>, u64)> {
         loop {
+            // Block until a new task is queued; the task data itself is not used here,
+            // only the side effect of waiting for the queue to produce a new entry.
             let _task = self.wait_for_task().await?;
             let round = self.provider.get_current_round().await?;
             if round > current {

@@ -129,7 +129,7 @@ impl<C: Clock + Metrics> OrchestratorBuilder<C> {
     /// Sets a fixed round timeout.
     ///
     /// Max duration to wait for operator signatures before abandoning a round.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // public API for upstream service crate callers
     pub fn with_round_timeout(mut self, timeout: Duration) -> Self {
         self.config.round_timeout = constant_duration(timeout);
         self
@@ -139,7 +139,7 @@ impl<C: Clock + Metrics> OrchestratorBuilder<C> {
     ///
     /// The provider is called once per round; returning different values across calls
     /// lets callers adapt the timeout at runtime (e.g. based on chain conditions).
-    #[allow(dead_code)]
+    #[allow(dead_code)] // public API for upstream service crate callers
     pub fn with_round_timeout_provider(mut self, provider: DurationProvider) -> Self {
         self.config.round_timeout = provider;
         self
@@ -150,7 +150,7 @@ impl<C: Clock + Metrics> OrchestratorBuilder<C> {
     /// How often to re-send the `Start` broadcast for an in-flight round while waiting
     /// for signatures. Setting this longer than `round_timeout` disables intra-round
     /// rebroadcasting entirely.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // public API for upstream service crate callers
     pub fn with_rebroadcast_interval(mut self, interval: Duration) -> Self {
         self.config.rebroadcast_interval = constant_duration(interval);
         self
@@ -159,7 +159,7 @@ impl<C: Clock + Metrics> OrchestratorBuilder<C> {
     /// Sets a dynamic rebroadcast interval provider.
     ///
     /// The provider is called each time the rebroadcast timer is reset.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // public API for upstream service crate callers
     pub fn with_rebroadcast_interval_provider(mut self, provider: DurationProvider) -> Self {
         self.config.rebroadcast_interval = provider;
         self

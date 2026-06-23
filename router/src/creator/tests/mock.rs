@@ -169,8 +169,13 @@ where
         Ok((payload, round))
     }
 
-    async fn wait_for_new_round(&self, _current: u64) -> Result<(Vec<u8>, u64)> {
-        self.get_payload_and_round().await
+    async fn wait_for_new_round(&self, current: u64) -> Result<(Vec<u8>, u64)> {
+        let result = self.get_payload_and_round().await?;
+        assert!(
+            result.1 > current,
+            "mock violated wait_for_new_round contract"
+        );
+        Ok(result)
     }
 
     fn get_task_metadata(&self) -> Self::TaskData {

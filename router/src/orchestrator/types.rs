@@ -183,6 +183,9 @@ where
                     Ok(val) => val,
                     Err(e) => {
                         tracing::error!("get_payload_and_round failed: {e}");
+                        self.runtime
+                            .sleep_until(self.runtime.current() + WAIT_RETRY_BACKOFF)
+                            .await;
                         continue;
                     }
                 },
