@@ -132,7 +132,6 @@ impl<C: Clock + Metrics> OrchestratorBuilder<C> {
         self
     }
 
-
     /// Sets the threshold for signature aggregation.
     ///
     /// # Arguments
@@ -187,7 +186,10 @@ impl<C: Clock + Metrics> OrchestratorBuilder<C> {
             && let Ok(seconds) = val.parse::<f64>()
         {
             self.config.round_timeout = Duration::from_secs_f64(seconds);
-            info!("round_timeout set to {} seconds from ROUND_TIMEOUT", seconds);
+            info!(
+                "round_timeout set to {} seconds from ROUND_TIMEOUT",
+                seconds
+            );
         }
 
         // REBROADCAST_INTERVAL overrides only the intra-round Start re-send cadence.

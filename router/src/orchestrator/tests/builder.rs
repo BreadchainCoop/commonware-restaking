@@ -75,7 +75,6 @@ async fn test_builder_with_threshold() {
     assert_eq!(config.config.threshold, 5);
 }
 
-
 #[tokio::test]
 async fn test_builder_with_round_timeout_and_rebroadcast_interval() {
     let clock = MockClock::new();

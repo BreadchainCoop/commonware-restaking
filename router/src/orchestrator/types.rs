@@ -226,7 +226,8 @@ where
             let round_timeout_deadline = self.runtime.current() + self.round_timeout;
             let mut executed_round: Option<u64> = None;
             let mut rebroadcast_fut = std::pin::pin!(
-                self.runtime.sleep_until(self.runtime.current() + self.rebroadcast_interval)
+                self.runtime
+                    .sleep_until(self.runtime.current() + self.rebroadcast_interval)
             );
             loop {
                 tokio::select! {
