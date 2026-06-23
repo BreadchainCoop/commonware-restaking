@@ -1,6 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use std::sync::Arc;
+use tokio::time::{Duration, sleep};
 use tracing::error;
 
 use crate::provider::CounterProvider;
@@ -40,7 +41,7 @@ impl Creator for CounterCreator {
                 let payload = self.provider.encode_round(round);
                 return Ok((payload, round));
             }
-            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+            sleep(Duration::from_secs(2)).await;
         }
     }
 
@@ -67,7 +68,6 @@ impl<Q: TaskQueue + Send + Sync + 'static> ListeningCounterCreator<Q> {
     }
 
     async fn wait_for_task(&self) -> Result<TaskRequest> {
-        use tokio::time::{Duration, sleep};
         let mut attempts = 0;
         let max_attempts = self.config.timeout_ms / self.config.polling_interval_ms;
         loop {
@@ -106,7 +106,6 @@ impl<Q: TaskQueue + Send + Sync + 'static> Creator for ListeningCounterCreator<Q
     }
 
     async fn wait_for_new_round(&self, current: u64) -> Result<(Vec<u8>, u64)> {
-        use tokio::time::{Duration, sleep};
         loop {
             let _task = self.wait_for_task().await?;
             let round = self.provider.get_current_round().await?;
