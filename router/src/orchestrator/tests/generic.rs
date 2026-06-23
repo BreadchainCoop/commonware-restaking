@@ -2,7 +2,7 @@ use super::task_data::TestTaskData;
 use crate::creator::Creator;
 use crate::creator::MockCreator;
 use crate::executor::MockExecutor;
-use crate::orchestrator::types::{Orchestrator, OrchestratorConfig};
+use crate::orchestrator::types::{Orchestrator, OrchestratorConfig, constant_duration};
 use commonware_avs_core::validator::MockValidator;
 use std::time::Duration;
 
@@ -16,8 +16,8 @@ async fn test_orchestrator_new() {
     let (contributors, g1_map) = contributor::create_test_contributors();
 
     let config = OrchestratorConfig {
-        round_timeout: Duration::from_secs(30),
-        rebroadcast_interval: Duration::from_secs(30),
+        round_timeout: constant_duration(Duration::from_secs(30)),
+        rebroadcast_interval: constant_duration(Duration::from_secs(30)),
         contributors: contributors.clone(),
         g1_map: g1_map.clone(),
         threshold: 2,
@@ -62,8 +62,8 @@ async fn test_orchestrator_task_creator_metadata() {
     };
 
     let config = OrchestratorConfig {
-        round_timeout: Duration::from_secs(30),
-        rebroadcast_interval: Duration::from_secs(30),
+        round_timeout: constant_duration(Duration::from_secs(30)),
+        rebroadcast_interval: constant_duration(Duration::from_secs(30)),
         contributors,
         g1_map,
         threshold: 2,
@@ -94,8 +94,8 @@ async fn test_orchestrator_executor_access() {
     let (contributors, g1_map) = contributor::create_test_contributors();
 
     let config = OrchestratorConfig {
-        round_timeout: Duration::from_secs(30),
-        rebroadcast_interval: Duration::from_secs(30),
+        round_timeout: constant_duration(Duration::from_secs(30)),
+        rebroadcast_interval: constant_duration(Duration::from_secs(30)),
         contributors,
         g1_map,
         threshold: 2,
@@ -126,8 +126,8 @@ async fn test_orchestrator_validator_access() {
     let (contributors, g1_map) = contributor::create_test_contributors();
 
     let config = OrchestratorConfig {
-        round_timeout: Duration::from_secs(30),
-        rebroadcast_interval: Duration::from_secs(30),
+        round_timeout: constant_duration(Duration::from_secs(30)),
+        rebroadcast_interval: constant_duration(Duration::from_secs(30)),
         contributors,
         g1_map,
         threshold: 2,
@@ -158,8 +158,8 @@ async fn test_orchestrator_config_creation() {
     let (contributors, g1_map) = contributor::create_test_contributors();
 
     let config = OrchestratorConfig {
-        round_timeout: Duration::from_secs(45),
-        rebroadcast_interval: Duration::from_secs(45),
+        round_timeout: constant_duration(Duration::from_secs(45)),
+        rebroadcast_interval: constant_duration(Duration::from_secs(45)),
         contributors: contributors.clone(),
         g1_map: g1_map.clone(),
         threshold: 3,
@@ -199,8 +199,8 @@ async fn test_orchestrator_threshold_validation() {
 
     // Test with threshold equal to number of contributors
     let config = OrchestratorConfig {
-        round_timeout: Duration::from_secs(30),
-        rebroadcast_interval: Duration::from_secs(30),
+        round_timeout: constant_duration(Duration::from_secs(30)),
+        rebroadcast_interval: constant_duration(Duration::from_secs(30)),
         contributors: contributors.clone(),
         g1_map: g1_map.clone(),
         threshold: 3, // Equal to number of contributors
@@ -236,8 +236,8 @@ async fn test_orchestrator_component_interaction() {
     let (contributors, g1_map) = contributor::create_test_contributors();
 
     let config = OrchestratorConfig {
-        round_timeout: Duration::from_secs(30),
-        rebroadcast_interval: Duration::from_secs(30),
+        round_timeout: constant_duration(Duration::from_secs(30)),
+        rebroadcast_interval: constant_duration(Duration::from_secs(30)),
         contributors,
         g1_map,
         threshold: 2,

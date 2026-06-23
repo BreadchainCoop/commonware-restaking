@@ -1003,3 +1003,91 @@ async fn test_rebroadcast_fires_before_round_timeout() {
     drop(msg_tx);
     handle.abort();
 }
+
+/// Verifies that a `DurationProvider` that changes its return value between rounds causes
+/// the orchestrator to apply the new timeout on the next round.
+///
+/// Setup: the provider starts at 300 ms. After the first round times out we bump it to
+/// 100 ms. We then confirm that the second round fires a timeout within 100 ms (not 300 ms),
+/// which would only be possible if `round_timeout` was sampled at the start of each round.
+#[tokio::test(start_paused = true)]
+async fn test_dynamic_round_timeout_provider() {
+    use commonware_runtime::Metrics;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    let clock = MockClock::new();
+    let orchestrator_signer = signer::create_test_signer();
+    let (contributors, g1_map) = contributor::create_test_contributors();
+
+    // Shared atomic millisecond value — starts at 300 ms, will be lowered to 100 ms.
+    let timeout_ms = Arc::new(AtomicU64::new(300));
+    let timeout_ms_clone = timeout_ms.clone();
+    let provider: crate::orchestrator::types::DurationProvider =
+        Arc::new(move || Duration::from_millis(timeout_ms_clone.load(Ordering::Relaxed)));
+
+    let builder = OrchestratorBuilder::new(clock.clone(), orchestrator_signer)
+        .with_contributors(contributors)
+        .with_g1_map(g1_map)
+        .with_threshold(2)
+        .with_round_timeout_provider(provider)
+        .with_rebroadcast_interval(Duration::from_secs(3600)); // effectively disabled
+
+    let orchestrator = builder
+        .build(
+            MockCreator::<TestTaskData>::new(),
+            MockExecutor::new(),
+            MockValidator::new_success(1),
+        )
+        .expect("failed to build orchestrator");
+
+    let (msg_tx, msg_rx) = tokio::sync::mpsc::unbounded_channel::<(
+        commonware_avs_core::bn254::PublicKey,
+        bytes::Bytes,
+    )>();
+
+    let handle = tokio::spawn(async move {
+        orchestrator
+            .run(MockSender::new(), MockReceiver::new(msg_rx))
+            .await;
+    });
+
+    // Yield so the orchestrator starts and registers the first round timer at 300 ms.
+    tokio::task::yield_now().await;
+
+    // Change the provider to 100 ms while round 1 is still running. Round 2 will pick
+    // this up when it calls the provider at the start of the new round.
+    timeout_ms.store(100, Ordering::Relaxed);
+
+    // Advance past the first 300 ms timeout — round 1 times out, round 2 starts and
+    // registers a new timer using the updated provider value (100 ms from now).
+    tokio::time::advance(Duration::from_millis(300)).await;
+    tokio::task::yield_now().await;
+
+    let encoded = clock.encode();
+    assert!(
+        encoded.contains("orchestrator_round_timeouts_total 1"),
+        "expected one timeout after 300 ms but got:\n{encoded}"
+    );
+    assert!(
+        encoded.contains("orchestrator_rounds_started_total 2"),
+        "expected round 2 to have started but got:\n{encoded}"
+    );
+
+    // Advance only 100 ms — only sufficient if round 2 used the updated provider (100 ms),
+    // not the stale value (300 ms). Proves the provider is sampled fresh each round.
+    tokio::time::advance(Duration::from_millis(100)).await;
+    tokio::task::yield_now().await;
+
+    let encoded = clock.encode();
+    assert!(
+        encoded.contains("orchestrator_round_timeouts_total 2"),
+        "expected two timeouts — proves provider is sampled each round, but got:\n{encoded}"
+    );
+    assert!(
+        encoded.contains("orchestrator_rounds_started_total 3"),
+        "expected round 3 to have started but got:\n{encoded}"
+    );
+
+    drop(msg_tx);
+    handle.abort();
+}

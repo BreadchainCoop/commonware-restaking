@@ -25,8 +25,11 @@ async fn test_builder_new() {
     let config = builder.get_config().expect("Failed to get config");
     assert_eq!(config.contributors.len(), 3);
     assert_eq!(config.g1_map.len(), 3);
-    assert_eq!(config.config.round_timeout, Duration::from_secs(30));
-    assert_eq!(config.config.rebroadcast_interval, Duration::from_secs(30));
+    assert_eq!((config.config.round_timeout)(), Duration::from_secs(30));
+    assert_eq!(
+        (config.config.rebroadcast_interval)(),
+        Duration::from_secs(30)
+    );
     assert_eq!(config.config.threshold, 3);
 }
 
@@ -90,8 +93,8 @@ async fn test_builder_with_round_timeout_and_rebroadcast_interval() {
         .with_rebroadcast_interval(rebroadcast_interval);
 
     let config = builder.get_config().expect("Failed to get config");
-    assert_eq!(config.config.round_timeout, round_timeout);
-    assert_eq!(config.config.rebroadcast_interval, rebroadcast_interval);
+    assert_eq!((config.config.round_timeout)(), round_timeout);
+    assert_eq!((config.config.rebroadcast_interval)(), rebroadcast_interval);
 }
 
 #[tokio::test]
@@ -134,8 +137,11 @@ async fn test_builder_load_from_env() {
     let config = builder.get_config().expect("Failed to get config");
     assert!(config.config.use_ingress);
     assert_eq!(config.config.ingress_address, "0.0.0.0:9090");
-    assert_eq!(config.config.round_timeout, Duration::from_secs(45));
-    assert_eq!(config.config.rebroadcast_interval, Duration::from_secs(5));
+    assert_eq!((config.config.round_timeout)(), Duration::from_secs(45));
+    assert_eq!(
+        (config.config.rebroadcast_interval)(),
+        Duration::from_secs(5)
+    );
     assert_eq!(config.config.threshold, 7);
 
     // Clean up environment variables
@@ -208,8 +214,11 @@ async fn test_builder_get_config() {
     assert_eq!(config.contributors.len(), 3);
     assert_eq!(config.g1_map.len(), 3);
     assert_eq!(config.config.threshold, 5);
-    assert_eq!(config.config.round_timeout, Duration::from_secs(60));
-    assert_eq!(config.config.rebroadcast_interval, Duration::from_secs(15));
+    assert_eq!((config.config.round_timeout)(), Duration::from_secs(60));
+    assert_eq!(
+        (config.config.rebroadcast_interval)(),
+        Duration::from_secs(15)
+    );
 }
 
 #[tokio::test]

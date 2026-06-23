@@ -24,13 +24,26 @@ use crate::executor::{FromBlsAggregation, VerificationData, VerificationExecutor
 use crate::orchestrator::metrics::OrchestratorMetrics;
 use crate::orchestrator::traits::OrchestratorTrait;
 
+/// A callable that returns a `Duration`, sampled once per round on the hot path.
+///
+/// Use `constant_duration` for a fixed value, or wrap a shared atomic/`RwLock` to
+/// allow an adaptive controller to adjust the orchestrator's timing live.
+pub type DurationProvider = std::sync::Arc<dyn Fn() -> Duration + Send + Sync>;
+
+/// Returns a `DurationProvider` that always yields `d`.
+pub fn constant_duration(d: Duration) -> DurationProvider {
+    std::sync::Arc::new(move || d)
+}
+
 /// Configuration for the generic orchestrator
-#[derive(Debug, Clone)]
 pub struct OrchestratorConfig {
-    /// Max duration to wait for operator signatures before abandoning a round.
-    pub round_timeout: Duration,
-    /// How often to re-send the `Start` broadcast for an in-flight round.
-    pub rebroadcast_interval: Duration,
+    /// Called once per round to determine how long to wait for threshold signatures
+    /// before abandoning the round. A dynamic provider lets an adaptive controller
+    /// shrink or grow this window at runtime.
+    pub round_timeout: DurationProvider,
+    /// Called once per round (and again after each rebroadcast) to determine the
+    /// interval between `Start` re-sends for an in-flight round.
+    pub rebroadcast_interval: DurationProvider,
     pub contributors: Vec<PublicKey>,
     pub g1_map: HashMap<PublicKey, G1PublicKey>,
     pub threshold: usize,
@@ -60,8 +73,8 @@ where
     runtime: C,
     #[allow(dead_code)]
     signer: Bn254,
-    round_timeout: Duration,
-    rebroadcast_interval: Duration,
+    round_timeout: DurationProvider,
+    rebroadcast_interval: DurationProvider,
     contributors: Vec<PublicKey>,
     g1_map: HashMap<PublicKey, G1PublicKey>, // g2 (PublicKey) -> g1 (PublicKey)
     ordered_contributors: HashMap<PublicKey, usize>,
@@ -124,8 +137,8 @@ where
         Self {
             runtime,
             signer,
-            round_timeout: config.round_timeout,
-            rebroadcast_interval: config.rebroadcast_interval,
+            round_timeout: config.round_timeout.clone(),
+            rebroadcast_interval: config.rebroadcast_interval.clone(),
             contributors,
             g1_map: config.g1_map,
             ordered_contributors,
@@ -223,11 +236,11 @@ where
             // biased: round_timeout is checked first so it wins when both it and the
             // rebroadcast timer fire simultaneously (round_timeout == rebroadcast_interval),
             // preserving the original single-knob behaviour.
-            let round_timeout_deadline = self.runtime.current() + self.round_timeout;
+            let round_timeout_deadline = self.runtime.current() + (self.round_timeout)();
             let mut executed_round: Option<u64> = None;
             let mut rebroadcast_fut = std::pin::pin!(
                 self.runtime
-                    .sleep_until(self.runtime.current() + self.rebroadcast_interval)
+                    .sleep_until(self.runtime.current() + (self.rebroadcast_interval)())
             );
             loop {
                 tokio::select! {
@@ -252,7 +265,7 @@ where
                         self.metrics.round_broadcasts.inc();
                         rebroadcast_fut.set(
                             self.runtime
-                                .sleep_until(self.runtime.current() + self.rebroadcast_interval),
+                                .sleep_until(self.runtime.current() + (self.rebroadcast_interval)()),
                         );
                     },
                     msg = receiver.recv() => {

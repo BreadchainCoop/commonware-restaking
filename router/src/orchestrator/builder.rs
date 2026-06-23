@@ -5,6 +5,8 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tracing::info;
 
+use crate::orchestrator::types::{DurationProvider, constant_duration};
+
 use crate::executor::{FromBlsAggregation, VerificationData, VerificationExecutor};
 
 /// Fallible orchestrator construction, parameterized by the verification-data container
@@ -26,15 +28,15 @@ pub struct OrchestratorBuilderConfig<C: Clock + Metrics> {
 ///
 /// This struct holds all the configuration parameters needed
 /// to construct an orchestrator instance.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OrchestratorConfig {
-    /// Max duration to wait for operator signatures before abandoning a round.
-    pub round_timeout: Duration,
-    /// How often to re-send the `Start` broadcast for an in-flight round while waiting
-    /// for signatures. Independent from `round_timeout` so recovery can be fast without
-    /// amplifying `Start` broadcasts. When equal to `round_timeout`, no intra-round
-    /// rebroadcast fires (the round times out first under the biased select).
-    pub rebroadcast_interval: Duration,
+    /// Provider for the max duration to wait for operator signatures before abandoning a round.
+    pub round_timeout: DurationProvider,
+    /// Provider for how often to re-send the `Start` broadcast for an in-flight round.
+    /// Independent from `round_timeout` so recovery can be fast without amplifying broadcasts.
+    /// When the sampled value equals `round_timeout`'s sampled value, the biased select
+    /// ensures no intra-round rebroadcast fires.
+    pub rebroadcast_interval: DurationProvider,
     /// The threshold number of signatures required for aggregation
     pub threshold: usize,
     /// Whether to use ingress mode (HTTP server for external requests)
@@ -46,12 +48,24 @@ pub struct OrchestratorConfig {
 impl Default for OrchestratorConfig {
     fn default() -> Self {
         Self {
-            round_timeout: Duration::from_secs(30),
-            rebroadcast_interval: Duration::from_secs(30),
+            round_timeout: constant_duration(Duration::from_secs(30)),
+            rebroadcast_interval: constant_duration(Duration::from_secs(30)),
             threshold: 3,
             use_ingress: false,
             ingress_address: "0.0.0.0:8080".to_string(),
         }
+    }
+}
+
+impl std::fmt::Debug for OrchestratorConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OrchestratorConfig")
+            .field("round_timeout", &(self.round_timeout)())
+            .field("rebroadcast_interval", &(self.rebroadcast_interval)())
+            .field("threshold", &self.threshold)
+            .field("use_ingress", &self.use_ingress)
+            .field("ingress_address", &self.ingress_address)
+            .finish()
     }
 }
 
@@ -112,23 +126,42 @@ impl<C: Clock + Metrics> OrchestratorBuilder<C> {
         self
     }
 
-    /// Sets the round timeout.
+    /// Sets a fixed round timeout.
     ///
     /// Max duration to wait for operator signatures before abandoning a round.
     #[allow(dead_code)]
     pub fn with_round_timeout(mut self, timeout: Duration) -> Self {
-        self.config.round_timeout = timeout;
+        self.config.round_timeout = constant_duration(timeout);
         self
     }
 
-    /// Sets the rebroadcast interval.
+    /// Sets a dynamic round timeout provider.
+    ///
+    /// The provider is called once per round; returning different values across calls
+    /// lets callers adapt the timeout at runtime (e.g. based on chain conditions).
+    #[allow(dead_code)]
+    pub fn with_round_timeout_provider(mut self, provider: DurationProvider) -> Self {
+        self.config.round_timeout = provider;
+        self
+    }
+
+    /// Sets a fixed rebroadcast interval.
     ///
     /// How often to re-send the `Start` broadcast for an in-flight round while waiting
     /// for signatures. Setting this longer than `round_timeout` disables intra-round
     /// rebroadcasting entirely.
     #[allow(dead_code)]
     pub fn with_rebroadcast_interval(mut self, interval: Duration) -> Self {
-        self.config.rebroadcast_interval = interval;
+        self.config.rebroadcast_interval = constant_duration(interval);
+        self
+    }
+
+    /// Sets a dynamic rebroadcast interval provider.
+    ///
+    /// The provider is called each time the rebroadcast timer is reset.
+    #[allow(dead_code)]
+    pub fn with_rebroadcast_interval_provider(mut self, provider: DurationProvider) -> Self {
+        self.config.rebroadcast_interval = provider;
         self
     }
 
@@ -185,7 +218,7 @@ impl<C: Clock + Metrics> OrchestratorBuilder<C> {
         if let Ok(val) = std::env::var("ROUND_TIMEOUT")
             && let Ok(seconds) = val.parse::<f64>()
         {
-            self.config.round_timeout = Duration::from_secs_f64(seconds);
+            self.config.round_timeout = constant_duration(Duration::from_secs_f64(seconds));
             info!(
                 "round_timeout set to {} seconds from ROUND_TIMEOUT",
                 seconds
@@ -196,7 +229,7 @@ impl<C: Clock + Metrics> OrchestratorBuilder<C> {
         if let Ok(val) = std::env::var("REBROADCAST_INTERVAL")
             && let Ok(seconds) = val.parse::<f64>()
         {
-            self.config.rebroadcast_interval = Duration::from_secs_f64(seconds);
+            self.config.rebroadcast_interval = constant_duration(Duration::from_secs_f64(seconds));
             info!(
                 "rebroadcast_interval set to {} seconds from REBROADCAST_INTERVAL",
                 seconds
@@ -246,8 +279,8 @@ impl<C: Clock + Metrics> OrchestratorBuilder<C> {
         info!(
             contributors = self.contributors.len(),
             threshold = self.config.threshold,
-            round_timeout = ?self.config.round_timeout,
-            rebroadcast_interval = ?self.config.rebroadcast_interval,
+            round_timeout_ms = (self.config.round_timeout)().as_millis(),
+            rebroadcast_interval_ms = (self.config.rebroadcast_interval)().as_millis(),
             use_ingress = self.config.use_ingress,
             "Validated orchestrator configuration"
         );
@@ -311,8 +344,8 @@ impl<C: Clock + Metrics> OrchestratorBuilder<C> {
         info!(
             contributors = self.contributors.len(),
             threshold = self.config.threshold,
-            round_timeout = ?self.config.round_timeout,
-            rebroadcast_interval = ?self.config.rebroadcast_interval,
+            round_timeout_ms = (self.config.round_timeout)().as_millis(),
+            rebroadcast_interval_ms = (self.config.rebroadcast_interval)().as_millis(),
             "Building generic orchestrator"
         );
 
