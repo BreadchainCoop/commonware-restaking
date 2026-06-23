@@ -149,6 +149,10 @@ where
         mut sender: impl Sender,
         mut receiver: impl Receiver<PublicKey = PublicKey>,
     ) {
+        // Backoff between wait_for_new_round retries; bounds hot-spinning when a creator
+        // fails immediately (e.g. CounterCreator when the provider is temporarily down).
+        const WAIT_RETRY_BACKOFF: Duration = Duration::from_secs(1);
+
         let mut signatures: HashMap<u64, RoundState> = HashMap::new();
         // Carries the (payload, round) returned by wait_for_new_round after a successful
         // execution so the outer loop can use it directly without an extra get_payload_and_round
@@ -393,6 +397,11 @@ where
                                         round = ex_round,
                                         "wait_for_new_round error: {e}; retrying"
                                     );
+                                    self.runtime
+                                        .sleep_until(
+                                            self.runtime.current() + WAIT_RETRY_BACKOFF,
+                                        )
+                                        .await;
                                     wait_fut.set(
                                         self.task_creator.wait_for_new_round(ex_round)
                                     );
