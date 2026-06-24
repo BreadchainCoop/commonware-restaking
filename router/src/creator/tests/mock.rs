@@ -169,6 +169,15 @@ where
         Ok((payload, round))
     }
 
+    async fn wait_for_new_round(&self, current: u64) -> Result<(Vec<u8>, u64)> {
+        let result = self.get_payload_and_round().await?;
+        assert!(
+            result.1 > current,
+            "mock violated wait_for_new_round contract"
+        );
+        Ok(result)
+    }
+
     fn get_task_metadata(&self) -> Self::TaskData {
         self.metadata.clone()
     }
@@ -180,5 +189,41 @@ where
 {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bytes::{Buf, BufMut};
+    use commonware_codec::{EncodeSize, Read, Write};
+
+    #[derive(Clone, Default)]
+    struct NoData;
+
+    impl Write for NoData {
+        fn write(&self, _buf: &mut impl BufMut) {}
+    }
+
+    impl Read for NoData {
+        type Cfg = ();
+        fn read_cfg(_buf: &mut impl Buf, _: &()) -> Result<Self, commonware_codec::Error> {
+            Ok(Self)
+        }
+    }
+
+    impl EncodeSize for NoData {
+        fn encode_size(&self) -> usize {
+            0
+        }
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_new_round_returns_strictly_greater_round() {
+        let creator = MockCreator::<NoData>::new();
+        let (_, round) = creator.get_payload_and_round().await.unwrap();
+        assert_eq!(round, 1);
+        let (_, new_round) = creator.wait_for_new_round(round).await.unwrap();
+        assert!(new_round > round);
     }
 }
