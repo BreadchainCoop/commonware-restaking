@@ -1,3 +1,4 @@
+use alloy::eips::BlockId;
 use alloy::sol_types::SolValue;
 use alloy::{network::Ethereum, providers::Provider};
 use alloy_primitives::{Address, Bytes, FixedBytes, U256};
@@ -194,9 +195,19 @@ impl<H: BlsSignatureVerificationHandler> BlsExecutorTrait<H::TaskData>
 
         let msg_hash = FixedBytes::<32>::from_slice(payload_hash);
 
-        // Measures the full EigenLayer read stretch: operator-address resolution,
-        // the current-block query, and the non-signer stakes/signature retrieval.
+        // Measures the full EigenLayer read stretch: the current-block query,
+        // operator-address resolution, and the non-signer stakes/signature retrieval.
         let retrieval_start = Instant::now();
+
+        // Fetch the current block number once up front. All subsequent eth_calls are
+        // pinned to this block so the entire verification reads a consistent EVM state
+        // snapshot — both the operator registry lookups and the non-signer stakes call.
+        let current_block_number = self
+            .view_only_provider
+            .get_block_number()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to get block number: {}", e))?;
+        let reference_block = BlockId::from(current_block_number);
 
         // Resolve an operator address for every participant.
         //
@@ -233,7 +244,11 @@ impl<H: BlsSignatureVerificationHandler> BlsExecutorTrait<H::TaskData>
             }
             let calls: Vec<_> = misses
                 .iter()
-                .map(|(_, _, hash)| self.bls_apk_registry.pubkeyHashToOperator(*hash))
+                .map(|(_, _, hash)| {
+                    self.bls_apk_registry
+                        .pubkeyHashToOperator(*hash)
+                        .block(reference_block)
+                })
                 .collect();
             let resolved =
                 futures::future::join_all(calls.iter().map(|call| call.call().into_future())).await;
@@ -252,15 +267,11 @@ impl<H: BlsSignatureVerificationHandler> BlsExecutorTrait<H::TaskData>
             .collect::<Option<Vec<Address>>>()
             .ok_or_else(|| anyhow::anyhow!("Failed to resolve all operator addresses"))?;
 
-        let current_block_number = self
-            .view_only_provider
-            .get_block_number()
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to get block number: {}", e))?;
         let quorum_numbers = Bytes::from_str("0x00")
             .map_err(|e| anyhow::anyhow!("Failed to parse quorum numbers: {}", e))?;
 
-        // Call the BLS operator state retriever to get the non-signer data
+        // Pinning the call to reference_block ensures the eth_call executes against
+        // the same EVM state snapshot used for operator resolution above.
         let non_signer_result = self
             .bls_operator_state_retriever
             .getNonSignerStakesAndSignature(
@@ -270,6 +281,7 @@ impl<H: BlsSignatureVerificationHandler> BlsExecutorTrait<H::TaskData>
                 operators,
                 current_block_number as u32,
             )
+            .block(reference_block)
             .call()
             .await
             .map_err(|e| anyhow::anyhow!("Failed to get non-signer stakes and signature: {}", e))?;
