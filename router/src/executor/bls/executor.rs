@@ -1,3 +1,4 @@
+use alloy::eips::BlockId;
 use alloy::sol_types::SolValue;
 use alloy::{network::Ethereum, providers::Provider};
 use alloy_primitives::{Address, Bytes, FixedBytes, U256};
@@ -194,9 +195,19 @@ impl<H: BlsSignatureVerificationHandler> BlsExecutorTrait<H::TaskData>
 
         let msg_hash = FixedBytes::<32>::from_slice(payload_hash);
 
-        // Measures the full EigenLayer read stretch: operator-address resolution,
-        // the current-block query, and the non-signer stakes/signature retrieval.
+        // Measures the full EigenLayer read stretch: the current-block query,
+        // operator-address resolution, and the non-signer stakes/signature retrieval.
         let retrieval_start = Instant::now();
+
+        // Fetch the current block number once up front. All subsequent eth_calls are
+        // pinned to this block so the entire verification reads a consistent EVM state
+        // snapshot — both the operator registry lookups and the non-signer stakes call.
+        let current_block_number = self
+            .view_only_provider
+            .get_block_number()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to get block number: {}", e))?;
+        let reference_block = BlockId::from(current_block_number);
 
         // Resolve an operator address for every participant.
         //
@@ -233,7 +244,11 @@ impl<H: BlsSignatureVerificationHandler> BlsExecutorTrait<H::TaskData>
             }
             let calls: Vec<_> = misses
                 .iter()
-                .map(|(_, _, hash)| self.bls_apk_registry.pubkeyHashToOperator(*hash))
+                .map(|(_, _, hash)| {
+                    self.bls_apk_registry
+                        .pubkeyHashToOperator(*hash)
+                        .block(reference_block)
+                })
                 .collect();
             let resolved =
                 futures::future::join_all(calls.iter().map(|call| call.call().into_future())).await;
@@ -252,15 +267,11 @@ impl<H: BlsSignatureVerificationHandler> BlsExecutorTrait<H::TaskData>
             .collect::<Option<Vec<Address>>>()
             .ok_or_else(|| anyhow::anyhow!("Failed to resolve all operator addresses"))?;
 
-        let current_block_number = self
-            .view_only_provider
-            .get_block_number()
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to get block number: {}", e))?;
         let quorum_numbers = Bytes::from_str("0x00")
             .map_err(|e| anyhow::anyhow!("Failed to parse quorum numbers: {}", e))?;
 
-        // Call the BLS operator state retriever to get the non-signer data
+        // Pinning the call to reference_block ensures the eth_call executes against
+        // the same EVM state snapshot used for operator resolution above.
         let non_signer_result = self
             .bls_operator_state_retriever
             .getNonSignerStakesAndSignature(
@@ -268,8 +279,11 @@ impl<H: BlsSignatureVerificationHandler> BlsExecutorTrait<H::TaskData>
                 quorum_numbers.clone(),
                 sigma_struct,
                 operators,
-                current_block_number as u32,
+                current_block_number
+                    .try_into()
+                    .map_err(|e| anyhow::anyhow!("block number overflows u32: {}", e))?,
             )
+            .block(reference_block)
             .call()
             .await
             .map_err(|e| anyhow::anyhow!("Failed to get non-signer stakes and signature: {}", e))?;
@@ -315,6 +329,114 @@ impl<H: BlsSignatureVerificationHandler> BlsExecutorTrait<H::TaskData>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloy::providers::ProviderBuilder;
+    use alloy::sol_types::SolValue;
+    use alloy_primitives::U64;
+    use alloy_provider::mock::Asserter;
+    use commonware_avs_bindings::{
+        bls_apk_registry::BLSApkRegistry,
+        bls_sig_check_operator_state_retriever::{
+            BLSSigCheckOperatorStateRetriever, BN254, IBLSSignatureCheckerTypes,
+        },
+    };
+    use commonware_avs_core::bn254::Bn254;
+    use commonware_cryptography::Signer;
+    use std::sync::{Arc, Mutex};
+
+    struct CapturingHandler(Arc<Mutex<Option<u32>>>);
+
+    #[async_trait]
+    impl BlsSignatureVerificationHandler for CapturingHandler {
+        type TaskData = ();
+        async fn handle_verification(
+            &mut self,
+            _round: u64,
+            _msg_hash: FixedBytes<32>,
+            _quorum_numbers: Bytes,
+            current_block_number: u32,
+            _non_signer_data: getNonSignerStakesAndSignatureReturn,
+            _task_data: Option<&Self::TaskData>,
+        ) -> anyhow::Result<ExecutionResult> {
+            *self.0.lock().unwrap() = Some(current_block_number);
+            Ok(ExecutionResult {
+                transaction_hash: "0x".to_string(),
+                block_number: None,
+                gas_used: None,
+                status: Some(true),
+                contract_address: None,
+            })
+        }
+    }
+
+    /// Asserts that `execute_bls_verification` fetches the block number once and
+    /// passes that same value as `current_block_number` to the handler, confirming
+    /// the block used for eth_call pinning and the argument to the contract are
+    /// consistent with each other.
+    #[tokio::test]
+    async fn execute_bls_verification_passes_fetched_block_to_handler() {
+        use ark_bn254::Fr as Scalar;
+
+        let signer = Bn254::from_scalar(Scalar::from(1u64));
+        let g1_key = signer.public_g1();
+        let g2_key = signer.public_key();
+        let signature = signer.sign(None, &[0x42u8; 32]);
+
+        const EXPECTED_BLOCK: u64 = 99_999;
+
+        // Push responses in the order execute_bls_verification issues them:
+        // 1. eth_blockNumber
+        // 2. eth_call for pubkeyHashToOperator (first-round cache miss)
+        // 3. eth_call for getNonSignerStakesAndSignature
+        let asserter = Asserter::new();
+        asserter.push_success(&U64::from(EXPECTED_BLOCK));
+        asserter.push_success(&Bytes::from(Address::ZERO.abi_encode()));
+        let mock_return = IBLSSignatureCheckerTypes::NonSignerStakesAndSignature {
+            nonSignerQuorumBitmapIndices: vec![],
+            nonSignerPubkeys: vec![],
+            quorumApks: vec![BN254::G1Point {
+                X: U256::ZERO,
+                Y: U256::ZERO,
+            }],
+            apkG2: BN254::G2Point {
+                X: [U256::ZERO, U256::ZERO],
+                Y: [U256::ZERO, U256::ZERO],
+            },
+            sigma: BN254::G1Point {
+                X: U256::ZERO,
+                Y: U256::ZERO,
+            },
+            quorumApkIndices: vec![0u32],
+            totalStakeIndices: vec![0u32],
+            nonSignerStakeIndices: vec![vec![]],
+        };
+        asserter.push_success(&Bytes::from(mock_return.abi_encode()));
+
+        let provider = ProviderBuilder::new().connect_mocked_client(asserter);
+        let bls_apk = BLSApkRegistry::new(Address::ZERO, provider.clone());
+        let retriever = BLSSigCheckOperatorStateRetriever::new(Address::ZERO, provider.clone());
+
+        let captured: Arc<Mutex<Option<u32>>> = Arc::new(Mutex::new(None));
+        let mut executor = BlsEigenlayerExecutor::new(
+            provider,
+            bls_apk,
+            retriever,
+            Address::ZERO,
+            CapturingHandler(captured.clone()),
+        );
+
+        let data = BlsVerificationData::new(vec![signature], vec![g2_key], vec![g1_key]);
+
+        executor
+            .execute_bls_verification(0, &[0x42u8; 32], data, None)
+            .await
+            .expect("execute_bls_verification should succeed with mock responses");
+
+        assert_eq!(
+            *captured.lock().unwrap(),
+            Some(EXPECTED_BLOCK as u32),
+            "handler must receive the block number returned by get_block_number()"
+        );
+    }
 
     /// Builds a `G1PublicKey` from decimal affine coordinates.
     fn g1(x: &str, y: &str) -> G1PublicKey {
