@@ -14,12 +14,14 @@ use serde::{Deserialize, Serialize};
 
 pub struct CounterCreator {
     provider: Arc<CounterProvider>,
+    polling_interval: Duration,
 }
 
 impl CounterCreator {
-    pub fn new(provider: CounterProvider) -> Self {
+    pub fn new(provider: CounterProvider, polling_interval: Duration) -> Self {
         Self {
             provider: Arc::new(provider),
+            polling_interval,
         }
     }
 }
@@ -41,7 +43,7 @@ impl Creator for CounterCreator {
                 let payload = self.provider.encode_round(round);
                 return Ok((payload, round));
             }
-            sleep(Duration::from_secs(2)).await;
+            sleep(self.polling_interval).await;
         }
     }
 

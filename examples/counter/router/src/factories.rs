@@ -12,7 +12,7 @@ use commonware_avs_router::creator::{CreatorConfig, SimpleTaskQueue};
 use commonware_avs_router::ingress::http_server::start_http_server;
 use counter_bindings::Counter;
 use counter_common::config::CounterDeployment;
-use std::{env, str::FromStr};
+use std::{env, str::FromStr, time::Duration};
 
 pub async fn create_creator() -> Result<CounterCreatorType> {
     let http_rpc = env::var("HTTP_RPC").expect("HTTP_RPC must be set");
@@ -31,8 +31,12 @@ pub async fn create_creator() -> Result<CounterCreatorType> {
         .counter_address()
         .map_err(|e| anyhow::anyhow!("Failed to get counter address: {}", e))?;
 
+    let polling_interval_ms: u64 = env::var("POLLING_INTERVAL_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(2_000);
     let provider = CounterProvider::new(counter_address, provider.clone());
-    let creator = CounterCreator::new(provider);
+    let creator = CounterCreator::new(provider, Duration::from_millis(polling_interval_ms));
     Ok(CounterCreatorType::Basic(creator))
 }
 
