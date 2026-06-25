@@ -331,8 +331,8 @@ mod tests {
     use super::*;
     use alloy::providers::ProviderBuilder;
     use alloy::sol_types::SolValue;
-    use alloy_provider::mock::Asserter;
     use alloy_primitives::U64;
+    use alloy_provider::mock::Asserter;
     use commonware_avs_bindings::{
         bls_apk_registry::BLSApkRegistry,
         bls_sig_check_operator_state_retriever::{
