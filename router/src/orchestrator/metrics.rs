@@ -1,9 +1,7 @@
 //! Round-lifecycle metrics for the orchestrator.
 
 use commonware_runtime::Metrics;
-use commonware_runtime::telemetry::metrics::{histogram::Buckets, status};
-use prometheus_client::metrics::counter::Counter;
-use prometheus_client::metrics::histogram::Histogram;
+use commonware_runtime::telemetry::metrics::{Counter, Histogram, histogram::Buckets, raw, status};
 
 /// Metrics covering the orchestrator's aggregation-round lifecycle.
 ///
@@ -35,55 +33,48 @@ impl OrchestratorMetrics {
     /// Registers all orchestrator metrics under an `orchestrator` label scope on
     /// `context`.
     pub fn new(context: &impl Metrics) -> Self {
-        let context = context.with_label("orchestrator");
+        let context = context.child("orchestrator");
 
-        let rounds_started = Counter::default();
-        context.register(
+        let rounds_started = context.register(
             "rounds_started",
             "Rounds for which a new signature-collection entry was created",
-            rounds_started.clone(),
+            raw::Counter::default(),
         );
 
-        let round_broadcasts = Counter::default();
-        context.register(
+        let round_broadcasts = context.register(
             "round_broadcasts",
             "Start broadcasts sent, including re-broadcasts of still-open rounds",
-            round_broadcasts.clone(),
+            raw::Counter::default(),
         );
 
-        let round_timeouts = Counter::default();
-        context.register(
+        let round_timeouts = context.register(
             "round_timeouts",
             "Aggregation windows that expired before the round completed",
-            round_timeouts.clone(),
+            raw::Counter::default(),
         );
 
-        let round_executions = status::Counter::default();
-        context.register(
+        let round_executions = context.register(
             "round_executions",
             "Outcome of execution attempts made when the signature threshold is met",
-            round_executions.clone(),
+            status::Raw::default(),
         );
 
-        let signatures = status::Counter::default();
-        context.register(
+        let signatures = context.register(
             "signatures",
             "Handling outcome of received signature messages",
-            signatures.clone(),
+            status::Raw::default(),
         );
 
-        let time_to_quorum = Histogram::new(Buckets::NETWORK.into_iter());
-        context.register(
+        let time_to_quorum = context.register(
             "time_to_quorum_seconds",
             "Time from a round's first broadcast to reaching the signature threshold",
-            time_to_quorum.clone(),
+            raw::Histogram::new(Buckets::NETWORK.into_iter()),
         );
 
-        let signature_arrival = Histogram::new(Buckets::NETWORK.into_iter());
-        context.register(
+        let signature_arrival = context.register(
             "signature_arrival_seconds",
             "Time from a round's first broadcast to each accepted signature",
-            signature_arrival.clone(),
+            raw::Histogram::new(Buckets::NETWORK.into_iter()),
         );
 
         Self {

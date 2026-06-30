@@ -2,11 +2,14 @@ use crate::contributor::{AggregationInput, Contribute, ContributorBase};
 use anyhow::Result;
 use ark_bn254::Fr;
 use commonware_avs_core::bn254::{Bn254, PrivateKey, PublicKey, Signature};
+use commonware_actor::{Feedback, Unreliable};
 use commonware_cryptography::Signer;
-use commonware_p2p::{Receiver, Sender};
+use commonware_p2p::{CheckedSender, LimitedSender, Receiver, Recipients, Sender};
+use commonware_runtime::{IoBuf, IoBufs};
 use std::collections::HashMap;
 use std::error::Error as StdError;
 use std::fmt;
+use std::time::SystemTime;
 
 /// Mock contributor for testing the trait implementations
 pub struct MockContributor {
@@ -122,22 +125,29 @@ impl fmt::Display for MockError {
 
 impl StdError for MockError {}
 
-// Mock implementations for testing async functionality
-#[derive(Debug, Clone)]
+// Mock implementations for testing async functionality.
+//
+// `Sender` is now a blanket impl over `LimitedSender`: implementing `check` (which
+// returns a `CheckedSender`) is enough to get the synchronous `Sender::send`.
+#[derive(Debug, Clone, Default)]
 pub struct MockSender {
-    sent_messages: std::sync::Arc<tokio::sync::Mutex<Vec<(String, bytes::Bytes, bool)>>>,
+    peers: std::sync::Arc<[PublicKey]>,
+}
+
+/// `CheckedSender` returned by [`MockSender::check`]; drops every message.
+#[derive(Debug)]
+pub struct MockCheckedSender {
+    recipients: Vec<PublicKey>,
 }
 
 #[derive(Debug)]
 pub struct MockReceiver {
-    messages: std::sync::Arc<tokio::sync::Mutex<Vec<(PublicKey, bytes::Bytes)>>>,
+    messages: std::sync::Arc<tokio::sync::Mutex<Vec<(PublicKey, IoBuf)>>>,
 }
 
 impl MockSender {
     pub fn new() -> Self {
-        Self {
-            sent_messages: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
-        }
+        Self::default()
     }
 }
 
@@ -149,31 +159,42 @@ impl MockReceiver {
     }
 }
 
-impl Default for MockSender {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Default for MockReceiver {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl commonware_p2p::Sender for MockSender {
-    type Error = MockError;
+impl LimitedSender for MockSender {
+    type PublicKey = PublicKey;
+    type Checked<'a>
+        = MockCheckedSender
+    where
+        Self: 'a;
+
+    fn check(
+        &mut self,
+        recipients: Recipients<Self::PublicKey>,
+    ) -> Result<Self::Checked<'_>, SystemTime> {
+        Ok(MockCheckedSender {
+            recipients: match recipients {
+                Recipients::All => self.peers.iter().cloned().collect(),
+                Recipients::Some(recipients) => recipients,
+                Recipients::One(recipient) => vec![recipient],
+            },
+        })
+    }
+}
+
+impl CheckedSender for MockCheckedSender {
     type PublicKey = PublicKey;
 
-    async fn send(
-        &mut self,
-        _recipients: commonware_p2p::Recipients<Self::PublicKey>,
-        message: bytes::Bytes,
-        reliable: bool,
-    ) -> Result<Vec<Self::PublicKey>, Self::Error> {
-        let mut messages = self.sent_messages.lock().await;
-        messages.push(("mock_recipients".to_string(), message, reliable));
-        Ok(vec![]) // Return empty vector as required by the trait
+    fn recipients(&self) -> Vec<Self::PublicKey> {
+        self.recipients.clone()
+    }
+
+    fn send(self, _message: impl Into<IoBufs> + Send, _priority: bool) -> Unreliable<Feedback> {
+        Unreliable::new(Feedback::Ok)
     }
 }
 
@@ -181,12 +202,12 @@ impl commonware_p2p::Receiver for MockReceiver {
     type Error = MockError;
     type PublicKey = PublicKey;
 
-    async fn recv(&mut self) -> Result<(Self::PublicKey, bytes::Bytes), Self::Error> {
+    async fn recv(&mut self) -> Result<(Self::PublicKey, IoBuf), Self::Error> {
         let mut messages = self.messages.lock().await;
         if messages.is_empty() {
             // Return a mock message to keep the test running
             let mock_signer = MockContributor::create_test_bn254(999);
-            let mock_message = bytes::Bytes::from("mock message");
+            let mock_message = IoBuf::from(bytes::Bytes::from("mock message"));
             Ok((mock_signer.public_key(), mock_message))
         } else {
             Ok(messages.remove(0))

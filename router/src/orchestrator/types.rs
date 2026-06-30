@@ -9,9 +9,9 @@ use commonware_codec::{EncodeSize, ReadExt, Write};
 use commonware_cryptography::{Hasher, Sha256, Verifier};
 use commonware_p2p::{Receiver, Sender};
 use commonware_runtime::telemetry::metrics::histogram::HistogramExt;
-use commonware_runtime::telemetry::metrics::status::{CounterExt, Status};
+use commonware_runtime::telemetry::metrics::status::Status;
 use commonware_runtime::{Clock, Metrics};
-use commonware_utils::hex;
+use hex::encode as hex;
 use std::{
     collections::HashMap,
     marker::PhantomData,
@@ -207,10 +207,7 @@ where
                 Aggregation::<TC::TaskData>::new(current_round, task_data, Some(Payload::Start));
             let mut buf = Vec::with_capacity(message.encode_size());
             message.write(&mut buf);
-            sender
-                .send(commonware_p2p::Recipients::All, Bytes::from(buf), true)
-                .await
-                .expect("failed to broadcast message");
+            sender.send(commonware_p2p::Recipients::All, Bytes::from(buf), true);
             self.metrics.round_broadcasts.inc();
 
             // Only create a new signature entry if one doesn't exist for this round
@@ -261,10 +258,7 @@ where
                         );
                         let mut buf = Vec::with_capacity(rebroadcast_msg.encode_size());
                         rebroadcast_msg.write(&mut buf);
-                        sender
-                            .send(commonware_p2p::Recipients::All, Bytes::from(buf), true)
-                            .await
-                            .expect("failed to rebroadcast Start");
+                        sender.send(commonware_p2p::Recipients::All, Bytes::from(buf), true);
                         self.metrics.round_broadcasts.inc();
                         rebroadcast_fut.set(
                             self.runtime
@@ -341,7 +335,7 @@ where
 
                         // Get the contributor's public key for verification
                         let contributor_pubkey = &self.contributors[*contributor];
-                        if !contributor_pubkey.verify(None, &expected_digest, &signature) {
+                        if !contributor_pubkey.verify(&[], &expected_digest, &signature) {
                             info!("Signature verification failed for contributor: {:?}", contributor);
                             self.metrics.signatures.inc(Status::Invalid);
                             continue;

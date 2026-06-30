@@ -3,14 +3,14 @@ use clap::{Arg, Command};
 use commonware_avs_core::bn254::{Bn254, PrivateKey, PublicKey};
 use commonware_avs_eigenlayer::{EigenStakingClient, QuorumInfo};
 use commonware_avs_node::contributor::{AggregationInput, Contribute};
-use commonware_p2p::Manager;
 use commonware_p2p::authenticated::lookup::{self, Network};
+use commonware_p2p::{Address, AddressableManager};
 use commonware_runtime::{
-    Metrics, Runner, Spawner,
+    Runner, Spawner, Supervisor,
     tokio::{self},
 };
 use commonware_utils::NZU32;
-use commonware_utils::set::OrderedAssociated;
+use commonware_utils::ordered::Map;
 use counter_common::CounterValidator;
 use counter_common::types::CounterTaskData;
 use eigen_logging::log_level::LogLevel;
@@ -149,7 +149,7 @@ pub fn main() {
 
     // Start runtime
     runner.start(|context: tokio::Context| async move {
-        let mut recipients: Vec<(PublicKey, SocketAddr)> = Vec::new();
+        let mut recipients: Vec<(PublicKey, Address)> = Vec::new();
         // Scoped to avoid configuring two loggers
         let orchestrator_pub_key;
         {
@@ -169,7 +169,7 @@ pub fn main() {
                     match socket.to_socket_addrs() {
                         Ok(mut addrs) => {
                             if let Some(socket_addr) = addrs.next() {
-                                recipients.push((verifier, socket_addr));
+                                recipients.push((verifier, Address::from(socket_addr)));
                             } else {
                                 panic!("No addresses found for socket: {socket}");
                             }
@@ -178,7 +178,7 @@ pub fn main() {
                             // If resolution fails, try parsing as direct IP:PORT
                             match SocketAddr::from_str(socket) {
                                 Ok(socket_addr) => {
-                                    recipients.push((verifier, socket_addr));
+                                    recipients.push((verifier, Address::from(socket_addr)));
                                 }
                                 Err(_) => {
                                     panic!("Contributor address not well-formed: {socket}");
@@ -209,29 +209,28 @@ pub fn main() {
                     .expect("Port not well-formed"),
             );
 
-            recipients.push((orchestrator_pub_key.clone(), local_addr));
+            recipients.push((orchestrator_pub_key.clone(), Address::from(local_addr)));
         }
 
         // Configure network
-        const MAX_MESSAGE_SIZE: usize = 1024 * 1024; // 1 MB
+        const MAX_MESSAGE_SIZE: u32 = 1024 * 1024; // 1 MB
         let my_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port);
-        let my_local_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
-        let mut p2p_cfg = lookup::Config::local(
-            signer.clone(),
-            APPLICATION_NAMESPACE,
-            my_addr,
-            my_local_addr,
-            MAX_MESSAGE_SIZE,
-        );
+        let mut p2p_cfg =
+            lookup::Config::local(signer.clone(), APPLICATION_NAMESPACE, my_addr, MAX_MESSAGE_SIZE);
 
-        // Allow handshakes from IPs that aren't yet in the registered peer set
-        p2p_cfg.attempt_unregistered_handshakes = true;
+        // Allow handshakes from IPs that aren't yet in the registered peer set.
+        // (Renamed from `attempt_unregistered_handshakes` in commonware 2026.5.0; same semantics:
+        // skip the source-IP match so known peers can connect from unexpected IPs — required behind
+        // K8s/NAT, where observed source IPs never match the registered Service IPs.)
+        p2p_cfg.bypass_ip_check = true;
 
-        let (mut network, mut oracle) = Network::new(context.with_label("network"), p2p_cfg);
+        let (mut network, mut oracle) = Network::new(context.child("network"), p2p_cfg);
 
-        // Provide authorized peers
-        let authorized = OrderedAssociated::from_iter(recipients);
-        oracle.update(0, authorized).await;
+        // Provide authorized peers. `track` registers a peer set (id 0) and is no
+        // longer async. `recipients` already holds `Address` values (built as
+        // `Symmetric` from each peer's socket).
+        let authorized = Map::from_iter_dedup(recipients);
+        oracle.track(0, authorized);
 
         // Parse contributors from operator states
         let mut contributors = Vec::new();

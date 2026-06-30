@@ -4,12 +4,16 @@ use ark_ff::AdditiveGroup;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use bytes::Buf;
 use bytes::buf::BufMut;
+use ark_ff::UniformRand;
 use commonware_codec::{Error, FixedSize, Read, Write};
 use commonware_cryptography::{
     Hasher as _, PublicKey as CPublicKey, Sha256, Signature as CSignature, Signer, Verifier,
 };
-use commonware_utils::{Array, Span, hex, union_unique};
+use commonware_math::algebra::Random;
+use commonware_utils::{Array, Span, union_unique};
 use eigen_crypto_bn254::utils::map_to_curve;
+use hex::encode as hex;
+use rand_core::CryptoRngCore;
 use std::str::FromStr;
 use std::{
     borrow::Cow,
@@ -32,18 +36,25 @@ pub struct Bn254 {
     public: G2Affine,
 }
 
+impl Random for Bn254 {
+    fn random(mut rng: impl CryptoRngCore) -> Self {
+        Bn254::from_scalar(Scalar::rand(&mut rng))
+    }
+}
+
 impl Signer for Bn254 {
     type Signature = Signature;
     type PublicKey = PublicKey;
 
-    fn sign(&self, namespace: Option<&[u8]>, message: &[u8]) -> Signature {
+    fn sign(&self, namespace: &[u8], message: &[u8]) -> Signature {
         // Generate payload
-        let hash: [u8; DIGEST_LENGTH] = if namespace.is_none() && message.len() == DIGEST_LENGTH {
+        let hash: [u8; DIGEST_LENGTH] = if namespace.is_empty() && message.len() == DIGEST_LENGTH {
             message.try_into().unwrap()
         } else {
-            let payload = match namespace {
-                Some(namespace) => Cow::Owned(union_unique(namespace, message)),
-                None => Cow::Borrowed(message),
+            let payload = if namespace.is_empty() {
+                Cow::Borrowed(message)
+            } else {
+                Cow::Owned(union_unique(namespace, message))
             };
             let mut hasher = Sha256::new();
             hasher.update(payload.as_ref());
@@ -70,14 +81,15 @@ impl Signer for Bn254 {
 impl Verifier for Bn254 {
     type Signature = Signature;
 
-    fn verify(&self, namespace: Option<&[u8]>, message: &[u8], signature: &Signature) -> bool {
+    fn verify(&self, namespace: &[u8], message: &[u8], signature: &Signature) -> bool {
         // Generate payload
-        let hash: [u8; DIGEST_LENGTH] = if namespace.is_none() && message.len() == DIGEST_LENGTH {
+        let hash: [u8; DIGEST_LENGTH] = if namespace.is_empty() && message.len() == DIGEST_LENGTH {
             message.try_into().unwrap()
         } else {
-            let payload = match namespace {
-                Some(namespace) => Cow::Owned(union_unique(namespace, message)),
-                None => Cow::Borrowed(message),
+            let payload = if namespace.is_empty() {
+                Cow::Borrowed(message)
+            } else {
+                Cow::Owned(union_unique(namespace, message))
             };
             let mut hasher = Sha256::new();
             hasher.update(payload.as_ref());
@@ -315,14 +327,15 @@ impl Display for PublicKey {
 impl Verifier for PublicKey {
     type Signature = Signature;
 
-    fn verify(&self, namespace: Option<&[u8]>, message: &[u8], signature: &Signature) -> bool {
+    fn verify(&self, namespace: &[u8], message: &[u8], signature: &Signature) -> bool {
         // Generate payload
-        let hash: [u8; DIGEST_LENGTH] = if namespace.is_none() && message.len() == DIGEST_LENGTH {
+        let hash: [u8; DIGEST_LENGTH] = if namespace.is_empty() && message.len() == DIGEST_LENGTH {
             message.try_into().unwrap()
         } else {
-            let payload = match namespace {
-                Some(namespace) => Cow::Owned(union_unique(namespace, message)),
-                None => Cow::Borrowed(message),
+            let payload = if namespace.is_empty() {
+                Cow::Borrowed(message)
+            } else {
+                Cow::Owned(union_unique(namespace, message))
             };
             let mut hasher = Sha256::new();
             hasher.update(payload.as_ref());
@@ -660,7 +673,7 @@ pub fn aggregate_verify(
         private: Scalar::ZERO, // dummy value for verification
         public: agg_public,
     };
-    verifier.verify(namespace, message, signature)
+    verifier.verify(namespace.unwrap_or(&[]), message, signature)
 }
 
 impl Bn254 {

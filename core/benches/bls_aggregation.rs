@@ -30,7 +30,7 @@ fn make_operators(n: usize) -> OperatorSet {
         let signer = Bn254::from_scalar(scalar);
         g1_keys.push(signer.public_g1());
         g2_keys.push(signer.public_key());
-        signatures.push(signer.sign(None, MESSAGE));
+        signatures.push(signer.sign(&[], MESSAGE));
     }
     OperatorSet {
         g1_keys,

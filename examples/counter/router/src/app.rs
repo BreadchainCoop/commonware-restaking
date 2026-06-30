@@ -8,14 +8,14 @@ use commonware_avs_core::bn254::{Bn254, PrivateKey, PublicKey};
 use commonware_avs_eigenlayer::{EigenStakingClient, QuorumInfo};
 use commonware_avs_router::orchestrator::traits::OrchestratorTrait;
 use commonware_cryptography::Signer;
-use commonware_p2p::Manager;
 use commonware_p2p::authenticated::lookup::{self, Network};
+use commonware_p2p::{Address, AddressableManager};
 use commonware_runtime::{
-    Metrics, Runner, Spawner,
+    Runner, Spawner, Supervisor,
     tokio::{self},
 };
 use commonware_utils::NZU32;
-use commonware_utils::set::OrderedAssociated;
+use commonware_utils::ordered::Map;
 use eigen_logging::log_level::LogLevel;
 use governor::Quota;
 use serde::{Deserialize, Serialize};
@@ -105,26 +105,21 @@ pub fn main() {
     tracing::info!(port, "loaded port");
 
     // Configure network
-    const MAX_MESSAGE_SIZE: usize = 1024 * 1024; // 1 MB
+    const MAX_MESSAGE_SIZE: u32 = 1024 * 1024; // 1 MB
     let my_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port);
-    let my_local_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
-    let mut p2p_cfg = lookup::Config::local(
-        signer.clone(),
-        APPLICATION_NAMESPACE,
-        my_addr,
-        my_local_addr,
-        MAX_MESSAGE_SIZE,
-    );
+    let mut p2p_cfg =
+        lookup::Config::local(signer.clone(), APPLICATION_NAMESPACE, my_addr, MAX_MESSAGE_SIZE);
 
     // Required in Kubernetes (or similar) environments because Kubernetes DNAT/SNAT makes IP-based admission filtering inherently non-functional
     // Source IPs observed at the listener will always be pod IPs, never the Service IPs registered in the oracle.
     // The setting should be kept enabled if the router is deployed in a Kubernetes (or similar) environment.
-    p2p_cfg.attempt_unregistered_handshakes = true;
+    // (Renamed from `attempt_unregistered_handshakes` in commonware 2026.5.0; same semantics: allow known peers to connect from unexpected IPs.)
+    p2p_cfg.bypass_ip_check = true;
 
     // Start runtime
     runner.start(|context| async move {
-        let (mut network, mut oracle) = Network::new(context.with_label("network"), p2p_cfg);
-        let mut recipients: Vec<(PublicKey, SocketAddr)>;
+        let (mut network, mut oracle) = Network::new(context.child("network"), p2p_cfg);
+        let mut recipients: Vec<(PublicKey, Address)>;
         let quorum_infos;
         {
             eigen_logging::init_logger(LogLevel::Debug);
@@ -146,7 +141,7 @@ pub fn main() {
                     match socket.to_socket_addrs() {
                         Ok(mut addrs) => {
                             if let Some(socket_addr) = addrs.next() {
-                                recipients.push((verifier, socket_addr));
+                                recipients.push((verifier, Address::from(socket_addr)));
                             } else {
                                 panic!("No addresses found for socket: {socket}");
                             }
@@ -155,7 +150,7 @@ pub fn main() {
                             // If resolution fails, try parsing as direct IP:PORT
                             match SocketAddr::from_str(&socket) {
                                 Ok(socket_addr) => {
-                                    recipients.push((verifier, socket_addr));
+                                    recipients.push((verifier, Address::from(socket_addr)));
                                 }
                                 Err(parse_err) => {
                                     tracing::error!("Failed to resolve '{}': {:?}, and failed to parse as IP: {:?}",
@@ -168,7 +163,7 @@ pub fn main() {
                 }
             }
             let orchestrator_verifier = signer.public_key();
-            recipients.push((orchestrator_verifier, my_addr));
+            recipients.push((orchestrator_verifier, Address::from(my_addr)));
         }
         let subscriber = tracing_subscriber::fmt()
             .with_max_level(tracing::Level::DEBUG)
@@ -176,9 +171,11 @@ pub fn main() {
             .finish();
         let _ = tracing::subscriber::set_default(subscriber);
 
-        // Provide authorized peers
-        let authorized = OrderedAssociated::from_iter(recipients);
-        oracle.update(0, authorized).await;
+        // Provide authorized peers. `track` registers a peer set (id 0) and is no
+        // longer async. `recipients` already holds `Address` values (built as
+        // `Symmetric` from each peer's socket).
+        let authorized = Map::from_iter_dedup(recipients);
+        oracle.track(0, authorized);
 
         // Parse contributors from operator states
         let mut contributors = Vec::new();
@@ -203,8 +200,11 @@ pub fn main() {
         let (sender, receiver) =
             network.register(0, Quota::per_second(NZU32!(1)), DEFAULT_MESSAGE_BACKLOG);
 
-        // Use the builder pattern to create the orchestrator
-        let builder = commonware_avs_router::orchestrator::builder::OrchestratorBuilder::new(context.clone(), signer)
+        // The runtime context is no longer `Clone`. Derive a child context for the
+        // orchestrator task before moving the root context into the builder (the
+        // orchestrator applies its own `orchestrator` metric prefix internally).
+        let orchestrator_context = context.child("orchestrator_task");
+        let builder = commonware_avs_router::orchestrator::builder::OrchestratorBuilder::new(context, signer)
             .with_contributors(contributors)
             .with_g1_map(contributors_map)
             .with_threshold(threshold)
@@ -276,7 +276,7 @@ pub fn main() {
             .build(task_creator, executor, validator)
             .expect("Failed to build orchestrator");
 
-        context.spawn(|_| async move { orchestrator.run(sender, receiver).await });
+        orchestrator_context.spawn(|_| async move { orchestrator.run(sender, receiver).await });
 
         let _ = network.start().await;
     });

@@ -32,6 +32,7 @@ eigen-logging = { workspace = true }
 futures = { workspace = true }
 futures-util = { workspace = true }
 governor = { workspace = true }
+hex = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
@@ -45,4 +46,5 @@ url = { workspace = true }
 prost-build = { workspace = true }
 
 [dev-dependencies]
+commonware-actor = { workspace = true }
 tokio = { workspace = true, features = ["full", "test-util"] }

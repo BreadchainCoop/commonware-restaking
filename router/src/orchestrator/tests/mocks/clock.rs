@@ -1,6 +1,9 @@
-use commonware_runtime::{Clock, Metrics};
+use commonware_runtime::telemetry::metrics::{
+    Metric, Registered, Registration, encoding, raw, registry::Registry, status,
+};
+use commonware_runtime::{Clock, Metrics, Name, Supervisor};
 use futures::Future;
-use prometheus_client::registry::{Metric, Registry};
+use std::any::Any;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
@@ -124,27 +127,83 @@ impl Clock for MockClock {
     }
 }
 
-impl Metrics for MockClock {
-    fn label(&self) -> String {
-        self.label.clone()
+// `commonware_runtime::Clock` now requires the governor clock traits as supertraits.
+impl governor::clock::Clock for MockClock {
+    type Instant = SystemTime;
+
+    fn now(&self) -> Self::Instant {
+        *self.current_time.lock().unwrap()
+    }
+}
+
+impl governor::clock::ReasonablyRealtime for MockClock {}
+
+impl MockClock {
+    /// Prefix `name` with this context's accumulated label scope.
+    fn prefixed(&self, name: &str) -> String {
+        if self.label.is_empty() {
+            name.to_string()
+        } else {
+            format!("{}_{}", self.label, name)
+        }
+    }
+}
+
+impl Supervisor for MockClock {
+    fn name(&self) -> Name {
+        Name {
+            label: self.label.clone(),
+            attributes: Vec::new(),
+        }
     }
 
-    fn with_label(&self, label: &str) -> Self {
+    fn child(&self, label: &'static str) -> Self {
         Self {
             current_time: self.current_time.clone(),
-            label: self.scoped_label(label),
+            label: self.prefixed(label),
             registry: self.registry.clone(),
         }
     }
 
-    fn register<N: Into<String>, H: Into<String>>(&self, name: N, help: H, metric: impl Metric) {
-        let name = self.scoped_label(&name.into());
-        self.registry.lock().unwrap().register(name, help, metric);
+    fn with_attribute(self, _key: &'static str, _value: impl std::fmt::Display) -> Self {
+        // Attributes are not asserted on in tests; ignore them.
+        self
+    }
+}
+
+impl Metrics for MockClock {
+    fn register<N: Into<String>, H: Into<String>, M: Metric>(
+        &self,
+        name: N,
+        help: H,
+        metric: M,
+    ) -> Registered<M> {
+        let name = self.prefixed(&name.into());
+        let help = help.into();
+
+        // The runtime's own registry is `pub(crate)`, so we encode through a plain
+        // prometheus `Registry` instead (re-exported via `telemetry::metrics`).
+        // `register` consumes its metric by value, but the concrete metric types are
+        // internally `Arc`-shared, so a clone registered for encoding stays in sync
+        // with the returned handle.
+        // `M: Metric` is `'static`, which lets us recover the concrete type.
+        let any = &metric as &dyn Any;
+        let mut registry = self.registry.lock().unwrap();
+        if let Some(counter) = any.downcast_ref::<raw::Counter>() {
+            registry.register(name, help, counter.clone());
+        } else if let Some(histogram) = any.downcast_ref::<raw::Histogram>() {
+            registry.register(name, help, histogram.clone());
+        } else if let Some(status) = any.downcast_ref::<status::Raw>() {
+            registry.register(name, help, status.clone());
+        }
+        drop(registry);
+
+        Registered::with_registration(metric, Registration::from(()))
     }
 
     fn encode(&self) -> String {
         let mut buffer = String::new();
-        prometheus_client::encoding::text::encode(&mut buffer, &self.registry.lock().unwrap())
+        encoding::text::encode(&mut buffer, &self.registry.lock().unwrap())
             .expect("metrics encoding failed");
         buffer
     }
