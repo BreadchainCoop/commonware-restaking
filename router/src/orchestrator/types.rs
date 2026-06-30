@@ -197,7 +197,7 @@ where
             let payload = hasher.finalize();
             info!(
                 state = current_round.to_string(),
-                msg = hex(&payload),
+                msg = hex(payload),
                 "generated payload for state"
             );
 
@@ -331,7 +331,7 @@ where
                             }
                         };
                         info!("Verifying signature for round: {} from contributor: {:?}, expected digest: {}",
-                              msg.round, contributor, hex(&expected_digest));
+                              msg.round, contributor, hex(expected_digest));
 
                         // Get the contributor's public key for verification
                         let contributor_pubkey = &self.contributors[*contributor];

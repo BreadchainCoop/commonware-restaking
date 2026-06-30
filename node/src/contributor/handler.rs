@@ -206,7 +206,7 @@ where
                 }
                 info!(
                     round,
-                    msg = hex(&payload),
+                    msg = hex(payload),
                     ?participating,
                     signature = hex(&agg_signature),
                     "aggregated signatures",
@@ -235,7 +235,7 @@ where
             info!(
                 "Generating signature for round: {}, payload hash: {}",
                 round,
-                hex(&payload)
+                hex(payload)
             );
             let signature = self.signer.sign(&[], &payload);
 

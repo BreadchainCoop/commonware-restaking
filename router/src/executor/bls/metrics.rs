@@ -27,7 +27,7 @@ impl ExecutorMetrics {
         let state_retrieval = context.register(
             "state_retrieval_seconds",
             "Time resolving operator addresses and fetching non-signer stakes and signature from EigenLayer",
-            raw::Histogram::new(Buckets::NETWORK.into_iter()),
+            raw::Histogram::new(Buckets::NETWORK),
         );
 
         let operator_cache_misses = context.register(

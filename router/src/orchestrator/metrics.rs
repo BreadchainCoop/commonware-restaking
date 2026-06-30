@@ -68,13 +68,13 @@ impl OrchestratorMetrics {
         let time_to_quorum = context.register(
             "time_to_quorum_seconds",
             "Time from a round's first broadcast to reaching the signature threshold",
-            raw::Histogram::new(Buckets::NETWORK.into_iter()),
+            raw::Histogram::new(Buckets::NETWORK),
         );
 
         let signature_arrival = context.register(
             "signature_arrival_seconds",
             "Time from a round's first broadcast to each accepted signature",
-            raw::Histogram::new(Buckets::NETWORK.into_iter()),
+            raw::Histogram::new(Buckets::NETWORK),
         );
 
         Self {
