@@ -107,8 +107,12 @@ pub fn main() {
     // Configure network
     const MAX_MESSAGE_SIZE: u32 = 1024 * 1024; // 1 MB
     let my_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port);
-    let mut p2p_cfg =
-        lookup::Config::local(signer.clone(), APPLICATION_NAMESPACE, my_addr, MAX_MESSAGE_SIZE);
+    let mut p2p_cfg = lookup::Config::local(
+        signer.clone(),
+        APPLICATION_NAMESPACE,
+        my_addr,
+        MAX_MESSAGE_SIZE,
+    );
 
     // Required in Kubernetes (or similar) environments because Kubernetes DNAT/SNAT makes IP-based admission filtering inherently non-functional
     // Source IPs observed at the listener will always be pod IPs, never the Service IPs registered in the oracle.

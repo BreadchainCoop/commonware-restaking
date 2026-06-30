@@ -1,10 +1,10 @@
 use ark_bn254::{Fq, Fq2, Fr as Scalar, G1Affine, G1Projective, G2Affine, G2Projective};
 use ark_ec::{AffineRepr, CurveGroup, PrimeGroup, pairing::Pairing};
 use ark_ff::AdditiveGroup;
+use ark_ff::UniformRand;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use bytes::Buf;
 use bytes::buf::BufMut;
-use ark_ff::UniformRand;
 use commonware_codec::{Error, FixedSize, Read, Write};
 use commonware_cryptography::{
     Hasher as _, PublicKey as CPublicKey, Sha256, Signature as CSignature, Signer, Verifier,

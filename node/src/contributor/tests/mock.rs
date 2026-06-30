@@ -1,8 +1,8 @@
 use crate::contributor::{AggregationInput, Contribute, ContributorBase};
 use anyhow::Result;
 use ark_bn254::Fr;
-use commonware_avs_core::bn254::{Bn254, PrivateKey, PublicKey, Signature};
 use commonware_actor::{Feedback, Unreliable};
+use commonware_avs_core::bn254::{Bn254, PrivateKey, PublicKey, Signature};
 use commonware_cryptography::Signer;
 use commonware_p2p::{CheckedSender, LimitedSender, Receiver, Recipients, Sender};
 use commonware_runtime::{IoBuf, IoBufs};
