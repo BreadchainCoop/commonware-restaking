@@ -181,12 +181,9 @@ impl Metrics for MockClock {
         let name = self.prefixed(&name.into());
         let help = help.into();
 
-        // The runtime's own registry is `pub(crate)`, so we encode through a plain
-        // prometheus `Registry` instead (re-exported via `telemetry::metrics`).
-        // `register` consumes its metric by value, but the concrete metric types are
-        // internally `Arc`-shared, so a clone registered for encoding stays in sync
-        // with the returned handle.
-        // `M: Metric` is `'static`, which lets us recover the concrete type.
+        // The runtime registry is `pub(crate)`, so encode through a plain prometheus
+        // `Registry`. Metric types are `Arc`-shared internally, so a clone registered
+        // for encoding stays in sync with the returned handle.
         let any = &metric as &dyn Any;
         let mut registry = self.registry.lock().unwrap();
         if let Some(counter) = any.downcast_ref::<raw::Counter>() {

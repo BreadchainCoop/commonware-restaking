@@ -623,10 +623,8 @@ async fn test_metrics_observed_on_quorum_path() {
     handle.abort();
 }
 
-/// When the signature threshold is met but `execute_verification` fails, the outcome
-/// is recorded on `round_executions` under the `Failure` status (and the round is left
-/// open rather than completing). Counterpart to `test_metrics_observed_on_quorum_path`,
-/// which covers the `Success` status.
+/// A failed `execute_verification` records a `Failure` on `round_executions` and leaves
+/// the round open. Counterpart to `test_metrics_observed_on_quorum_path` (`Success`).
 #[tokio::test(start_paused = true)]
 async fn test_metrics_failed_execution_counted() {
     use alloy::primitives::U256;
@@ -643,11 +641,9 @@ async fn test_metrics_failed_execution_counted() {
     let (contributors, g1_map, contributor_signers) =
         contributor::create_test_contributors_with_signers();
 
-    // threshold=2 and an executor that always fails. Sending exactly the threshold (2)
-    // signatures triggers a single execution attempt, which fails — so the round stays
-    // open and `round_executions{status="Failure"}` is incremented exactly once. (A
-    // third signature would land above the open threshold and retrigger execution,
-    // counting a second failure; we send exactly two to keep the count deterministic.)
+    // threshold=2 with an always-failing executor. Send exactly two signatures so
+    // execution is attempted once: the round stays open and `round_executions` records
+    // exactly one `Failure`.
     let builder = OrchestratorBuilder::new(clock.clone(), orchestrator_signer)
         .with_contributors(contributors)
         .with_g1_map(g1_map)
@@ -761,13 +757,9 @@ async fn test_metrics_round_timeout_counted() {
         );
     }
 
-    // A round that times out must NOT record an execution outcome: the threshold is
-    // never met, so `execute_verification` is never called and `round_executions` is
-    // never incremented. A labeled counter family only materializes a series once a
-    // label value is first observed, so the absence of this series is precisely the
-    // invariant we want here. The Success/Failure series themselves are asserted by
-    // value in `test_metrics_observed_on_quorum_path` and
-    // `test_metrics_failed_execution_counted` respectively.
+    // A timed-out round never meets the threshold, so `execute_verification` is never
+    // called and no `round_executions` series is emitted. The Success/Failure series are
+    // asserted by value in the quorum-path and failed-execution tests.
     assert!(
         !encoded.contains("orchestrator_round_executions_total"),
         "a timed-out round must not record any execution outcome:\n{encoded}"
