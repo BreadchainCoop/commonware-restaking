@@ -127,7 +127,7 @@ impl Clock for MockClock {
     }
 }
 
-// `commonware_runtime::Clock` now requires the governor clock traits as supertraits.
+// `commonware_runtime::Clock` requires the governor clock traits as supertraits.
 impl governor::clock::Clock for MockClock {
     type Instant = SystemTime;
 

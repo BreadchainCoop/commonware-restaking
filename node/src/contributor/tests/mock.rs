@@ -127,8 +127,8 @@ impl StdError for MockError {}
 
 // Mock implementations for testing async functionality.
 //
-// `Sender` is now a blanket impl over `LimitedSender`: implementing `check` (which
-// returns a `CheckedSender`) is enough to get the synchronous `Sender::send`.
+// `Sender` is a blanket impl over `LimitedSender`, so implementing `check` (which
+// returns a `CheckedSender`) is sufficient.
 #[derive(Debug, Clone, Default)]
 pub struct MockSender {
     peers: std::sync::Arc<[PublicKey]>,

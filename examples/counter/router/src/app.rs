@@ -117,7 +117,6 @@ pub fn main() {
     // Required in Kubernetes (or similar) environments because Kubernetes DNAT/SNAT makes IP-based admission filtering inherently non-functional
     // Source IPs observed at the listener will always be pod IPs, never the Service IPs registered in the oracle.
     // The setting should be kept enabled if the router is deployed in a Kubernetes (or similar) environment.
-    // (Renamed from `attempt_unregistered_handshakes` in commonware 2026.5.0; same semantics: allow known peers to connect from unexpected IPs.)
     p2p_cfg.bypass_ip_check = true;
 
     // Start runtime
@@ -175,9 +174,7 @@ pub fn main() {
             .finish();
         let _ = tracing::subscriber::set_default(subscriber);
 
-        // Provide authorized peers. `track` registers a peer set (id 0) and is no
-        // longer async. `recipients` already holds `Address` values (built as
-        // `Symmetric` from each peer's socket).
+        // Register the authorized peer set (id 0).
         let authorized = Map::from_iter_dedup(recipients);
         oracle.track(0, authorized);
 
@@ -204,9 +201,9 @@ pub fn main() {
         let (sender, receiver) =
             network.register(0, Quota::per_second(NZU32!(1)), DEFAULT_MESSAGE_BACKLOG);
 
-        // The runtime context is no longer `Clone`. Derive a child context for the
-        // orchestrator task before moving the root context into the builder (the
-        // orchestrator applies its own `orchestrator` metric prefix internally).
+        // Derive a child context for the orchestrator task before moving the root
+        // context into the builder (the orchestrator applies its own `orchestrator`
+        // metric prefix internally).
         let orchestrator_context = context.child("orchestrator_task");
         let builder = commonware_avs_router::orchestrator::builder::OrchestratorBuilder::new(context, signer)
             .with_contributors(contributors)

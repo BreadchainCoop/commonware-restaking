@@ -765,9 +765,8 @@ async fn test_metrics_round_timeout_counted() {
     // never met, so `execute_verification` is never called and `round_executions` is
     // never incremented. A labeled counter family only materializes a series once a
     // label value is first observed, so the absence of this series is precisely the
-    // invariant we want here (and it holds regardless of prometheus-client's
-    // empty-family-descriptor behavior). The Success/Failure series themselves are
-    // asserted by value in `test_metrics_observed_on_quorum_path` and
+    // invariant we want here. The Success/Failure series themselves are asserted by
+    // value in `test_metrics_observed_on_quorum_path` and
     // `test_metrics_failed_execution_counted` respectively.
     assert!(
         !encoded.contains("orchestrator_round_executions_total"),

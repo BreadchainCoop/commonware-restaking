@@ -222,17 +222,14 @@ pub fn main() {
             MAX_MESSAGE_SIZE,
         );
 
-        // Allow handshakes from IPs that aren't yet in the registered peer set.
-        // (Renamed from `attempt_unregistered_handshakes` in commonware 2026.5.0; same semantics:
-        // skip the source-IP match so known peers can connect from unexpected IPs — required behind
-        // K8s/NAT, where observed source IPs never match the registered Service IPs.)
+        // Skip the source-IP match so known peers can connect from unexpected IPs,
+        // required behind K8s/NAT where observed source IPs never match the
+        // registered Service IPs.
         p2p_cfg.bypass_ip_check = true;
 
         let (mut network, mut oracle) = Network::new(context.child("network"), p2p_cfg);
 
-        // Provide authorized peers. `track` registers a peer set (id 0) and is no
-        // longer async. `recipients` already holds `Address` values (built as
-        // `Symmetric` from each peer's socket).
+        // Register the authorized peer set (id 0).
         let authorized = Map::from_iter_dedup(recipients);
         oracle.track(0, authorized);
 
