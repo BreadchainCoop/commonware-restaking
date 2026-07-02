@@ -126,9 +126,6 @@ impl fmt::Display for MockError {
 impl StdError for MockError {}
 
 // Mock implementations for testing async functionality.
-//
-// `Sender` is a blanket impl over `LimitedSender`, so implementing `check` (which
-// returns a `CheckedSender`) is sufficient.
 #[derive(Debug, Clone, Default)]
 pub struct MockSender {
     peers: std::sync::Arc<[PublicKey]>,

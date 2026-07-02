@@ -21,9 +21,6 @@ impl fmt::Display for MockP2pError {
 impl std::error::Error for MockP2pError {}
 
 /// Minimal no-op sender that satisfies the `Sender` trait bounds.
-///
-/// `Sender` is a blanket impl over `LimitedSender`, so implementing `check`
-/// (returning a `CheckedSender`) is sufficient.
 #[derive(Clone, Debug)]
 pub struct MockSender;
 
