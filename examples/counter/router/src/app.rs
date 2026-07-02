@@ -114,9 +114,8 @@ pub fn main() {
         MAX_MESSAGE_SIZE,
     );
 
-    // Required in Kubernetes (or similar) environments because Kubernetes DNAT/SNAT makes IP-based admission filtering inherently non-functional
-    // Source IPs observed at the listener will always be pod IPs, never the Service IPs registered in the oracle.
-    // The setting should be kept enabled if the router is deployed in a Kubernetes (or similar) environment.
+    // Behind K8s/NAT source IPs never match registered addresses, so peers are
+    // authenticated by the handshake rather than by IP.
     p2p_cfg.bypass_ip_check = true;
 
     // Start runtime

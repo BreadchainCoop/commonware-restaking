@@ -222,9 +222,8 @@ pub fn main() {
             MAX_MESSAGE_SIZE,
         );
 
-        // Skip the source-IP match so known peers can connect from unexpected IPs,
-        // required behind K8s/NAT where observed source IPs never match the
-        // registered Service IPs.
+        // Behind K8s/NAT source IPs never match registered addresses, so peers are
+        // authenticated by the handshake rather than by IP.
         p2p_cfg.bypass_ip_check = true;
 
         let (mut network, mut oracle) = Network::new(context.child("network"), p2p_cfg);
