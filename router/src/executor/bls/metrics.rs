@@ -1,9 +1,7 @@
 //! Metrics for the EigenLayer reads the BLS executor performs each execution.
 
 use commonware_runtime::Metrics;
-use commonware_runtime::telemetry::metrics::histogram::Buckets;
-use prometheus_client::metrics::counter::Counter;
-use prometheus_client::metrics::histogram::Histogram;
+use commonware_runtime::telemetry::metrics::{Counter, Histogram, histogram::Buckets, raw};
 
 /// Metrics covering the EigenLayer state reads that precede contract-handler
 /// execution: operator-address resolution and the non-signer stakes/signature
@@ -24,20 +22,18 @@ pub struct ExecutorMetrics {
 impl ExecutorMetrics {
     /// Registers all executor metrics under an `executor` label scope on `context`.
     pub fn new(context: &impl Metrics) -> Self {
-        let context = context.with_label("executor");
+        let context = context.child("executor");
 
-        let state_retrieval = Histogram::new(Buckets::NETWORK.into_iter());
-        context.register(
+        let state_retrieval = context.register(
             "state_retrieval_seconds",
             "Time resolving operator addresses and fetching non-signer stakes and signature from EigenLayer",
-            state_retrieval.clone(),
+            raw::Histogram::new(Buckets::NETWORK),
         );
 
-        let operator_cache_misses = Counter::default();
-        context.register(
+        let operator_cache_misses = context.register(
             "operator_cache_misses",
             "Operator addresses resolved over RPC because they were not yet cached",
-            operator_cache_misses.clone(),
+            raw::Counter::default(),
         );
 
         Self {

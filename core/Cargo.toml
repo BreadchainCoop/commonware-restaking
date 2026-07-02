@@ -17,11 +17,14 @@ async-trait = { workspace = true }
 bytes = { workspace = true }
 commonware-codec = { workspace = true }
 commonware-cryptography = { workspace = true }
+commonware-math = { workspace = true }
 commonware-p2p = { workspace = true }
 commonware-runtime = { workspace = true }
 commonware-utils = { workspace = true }
 eigen-crypto-bn254 = { workspace = true }
+hex = { workspace = true }
 rand = { workspace = true }
+rand_core = { workspace = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

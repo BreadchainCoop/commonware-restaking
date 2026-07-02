@@ -379,7 +379,7 @@ mod tests {
         let signer = Bn254::from_scalar(Scalar::from(1u64));
         let g1_key = signer.public_g1();
         let g2_key = signer.public_key();
-        let signature = signer.sign(None, &[0x42u8; 32]);
+        let signature = signer.sign(&[], &[0x42u8; 32]);
 
         const EXPECTED_BLOCK: u64 = 99_999;
 

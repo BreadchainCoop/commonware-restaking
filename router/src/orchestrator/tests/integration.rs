@@ -382,7 +382,7 @@ async fn test_executor_called_exactly_once_after_threshold() {
     // Enqueue threshold+1 = 3 signed messages for round 1 before the orchestrator starts.
     let (msg_tx, msg_rx) = unbounded_channel::<(commonware_avs_core::bn254::PublicKey, Bytes)>();
     for contributor_signer in &contributor_signers {
-        let sig = contributor_signer.sign(None, expected_digest.as_ref());
+        let sig = contributor_signer.sign(&[], expected_digest.as_ref());
         let msg = Aggregation::<TestTaskData>::new(
             1,
             TestTaskData::default(),
@@ -501,7 +501,7 @@ async fn test_orchestrator_passes_typed_bls_data() {
     // Enqueue exactly the threshold (2) signed messages for round 1.
     let (msg_tx, msg_rx) = unbounded_channel::<(commonware_avs_core::bn254::PublicKey, Bytes)>();
     for contributor_signer in contributor_signers.iter().take(2) {
-        let sig = contributor_signer.sign(None, expected_digest.as_ref());
+        let sig = contributor_signer.sign(&[], expected_digest.as_ref());
         let msg = Aggregation::<TestTaskData>::new(
             1,
             TestTaskData::default(),
@@ -583,7 +583,7 @@ async fn test_metrics_observed_on_quorum_path() {
 
     let (msg_tx, msg_rx) = unbounded_channel::<(commonware_avs_core::bn254::PublicKey, Bytes)>();
     for contributor_signer in &contributor_signers {
-        let sig = contributor_signer.sign(None, expected_digest.as_ref());
+        let sig = contributor_signer.sign(&[], expected_digest.as_ref());
         let msg = Aggregation::<TestTaskData>::new(
             1,
             TestTaskData::default(),
@@ -618,6 +618,82 @@ async fn test_metrics_observed_on_quorum_path() {
             "expected `{expected}` in encoded metrics:\n{encoded}"
         );
     }
+
+    drop(msg_tx);
+    handle.abort();
+}
+
+/// A failed `execute_verification` records a `Failure` on `round_executions` and leaves
+/// the round open. Counterpart to `test_metrics_observed_on_quorum_path` (`Success`).
+#[tokio::test(start_paused = true)]
+async fn test_metrics_failed_execution_counted() {
+    use alloy::primitives::U256;
+    use alloy::sol_types::SolValue;
+    use bytes::Bytes;
+    use commonware_avs_core::wire::{Aggregation, aggregation::Payload};
+    use commonware_codec::{EncodeSize, Write};
+    use commonware_cryptography::{Hasher, Sha256, Signer};
+    use commonware_runtime::Metrics;
+    use tokio::sync::mpsc::unbounded_channel;
+
+    let clock = MockClock::new();
+    let orchestrator_signer = signer::create_test_signer();
+    let (contributors, g1_map, contributor_signers) =
+        contributor::create_test_contributors_with_signers();
+
+    // threshold=2 with an always-failing executor. Send exactly two signatures so
+    // execution is attempted once: the round stays open and `round_executions` records
+    // exactly one `Failure`.
+    let builder = OrchestratorBuilder::new(clock.clone(), orchestrator_signer)
+        .with_contributors(contributors)
+        .with_g1_map(g1_map)
+        .with_threshold(2)
+        .with_round_timeout(Duration::from_millis(100));
+
+    let orchestrator = builder
+        .build(
+            MockCreator::<TestTaskData>::new(),
+            MockExecutor::new_failure("forced execution failure".to_string()),
+            MockValidator::new_success(1),
+        )
+        .expect("failed to build orchestrator");
+
+    let expected_digest = {
+        let payload = U256::from(1u64).abi_encode();
+        let mut hasher = Sha256::new();
+        hasher.update(&payload);
+        hasher.finalize()
+    };
+
+    let (msg_tx, msg_rx) = unbounded_channel::<(commonware_avs_core::bn254::PublicKey, Bytes)>();
+    for contributor_signer in contributor_signers.iter().take(2) {
+        let sig = contributor_signer.sign(&[], expected_digest.as_ref());
+        let msg = Aggregation::<TestTaskData>::new(
+            1,
+            TestTaskData::default(),
+            Some(Payload::Signature(sig.to_vec())),
+        );
+        let mut buf = Vec::with_capacity(msg.encode_size());
+        msg.write(&mut buf);
+        msg_tx
+            .send((contributor_signer.public_key(), Bytes::from(buf)))
+            .unwrap();
+    }
+
+    let handle = tokio::spawn(async move {
+        orchestrator
+            .run(MockSender::new(), MockReceiver::new(msg_rx))
+            .await;
+    });
+
+    tokio::time::advance(Duration::from_millis(200)).await;
+    tokio::task::yield_now().await;
+
+    let encoded = clock.encode();
+    assert!(
+        encoded.contains("orchestrator_round_executions_total{status=\"Failure\"} 1"),
+        "a failed execution must be counted once under the Failure status:\n{encoded}"
+    );
 
     drop(msg_tx);
     handle.abort();
@@ -671,17 +747,23 @@ async fn test_metrics_round_timeout_counted() {
         "orchestrator_round_timeouts_total 1",
         "orchestrator_rounds_started_total 2",
         "orchestrator_round_broadcasts_total 2",
-        // Histograms and the executions family are registered (and thus visible to
-        // consumers) even before their first observation.
+        // Histograms are visible even before their first observation.
         "orchestrator_time_to_quorum_seconds",
         "orchestrator_signature_arrival_seconds",
-        "orchestrator_round_executions",
     ] {
         assert!(
             encoded.contains(expected),
             "expected `{expected}` in encoded metrics:\n{encoded}"
         );
     }
+
+    // A timed-out round never meets the threshold, so `execute_verification` is never
+    // called and no `round_executions` series is emitted. The Success/Failure series are
+    // asserted by value in the quorum-path and failed-execution tests.
+    assert!(
+        !encoded.contains("orchestrator_round_executions_total"),
+        "a timed-out round must not record any execution outcome:\n{encoded}"
+    );
 
     drop(msg_tx);
     handle.abort();
@@ -813,7 +895,7 @@ async fn test_get_payload_not_recalled_after_execution() {
 
     let (msg_tx, msg_rx) = unbounded_channel::<(commonware_avs_core::bn254::PublicKey, Bytes)>();
     for contributor_signer in contributor_signers.iter().take(2) {
-        let sig = contributor_signer.sign(None, expected_digest.as_ref());
+        let sig = contributor_signer.sign(&[], expected_digest.as_ref());
         let msg = Aggregation::<TestTaskData>::new(
             1,
             TestTaskData::default(),
@@ -904,7 +986,7 @@ async fn test_orchestrator_survives_wait_for_new_round_error() {
 
     let (msg_tx, msg_rx) = unbounded_channel::<(commonware_avs_core::bn254::PublicKey, Bytes)>();
     for contributor_signer in contributor_signers.iter().take(2) {
-        let sig = contributor_signer.sign(None, expected_digest.as_ref());
+        let sig = contributor_signer.sign(&[], expected_digest.as_ref());
         let msg = Aggregation::<TestTaskData>::new(
             1,
             TestTaskData::default(),

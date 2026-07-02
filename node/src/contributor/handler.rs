@@ -11,8 +11,8 @@ use commonware_avs_core::wire::{self, aggregation::Payload};
 use commonware_codec::{EncodeSize, ReadExt, Write};
 use commonware_cryptography::Signer;
 use commonware_p2p::{Receiver, Sender};
-use commonware_utils::hex;
 use dotenv::dotenv;
+use hex::encode as hex;
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -206,7 +206,7 @@ where
                 }
                 info!(
                     round,
-                    msg = hex(&payload),
+                    msg = hex(payload),
                     ?participating,
                     signature = hex(&agg_signature),
                     "aggregated signatures",
@@ -235,9 +235,9 @@ where
             info!(
                 "Generating signature for round: {}, payload hash: {}",
                 round,
-                hex(&payload)
+                hex(payload)
             );
-            let signature = self.signer.sign(None, &payload);
+            let signature = self.signer.sign(&[], &payload);
 
             // Store signature
             signatures
@@ -256,10 +256,7 @@ where
             info!("Sending signature for round: {}", round);
 
             // Broadcast to all (including orchestrator)
-            sender
-                .send(commonware_p2p::Recipients::All, Bytes::from(buf), true)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to broadcast signature: {}", e))?;
+            sender.send(commonware_p2p::Recipients::All, Bytes::from(buf), true);
             info!(round, "broadcast signature");
         }
 
