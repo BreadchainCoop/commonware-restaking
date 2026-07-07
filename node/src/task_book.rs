@@ -22,10 +22,16 @@
 //! # Idempotency
 //!
 //! The router rebroadcasts directives until a height certifies, so duplicates are
-//! expected: the FIRST directive recorded for a height wins, replays are ignored,
-//! and a conflicting directive for the same height is logged and dropped (the
-//! engine only asks for each height's digest once, so flip-flopping would be
-//! unobservable anyway — divergence recovery is the router's job).
+//! expected: identical replays for an already-recorded height are ignored. The
+//! router also has exactly one legitimate way to change its mind about a height:
+//! after `round_timeout` elapses without a certificate, it latches from
+//! `Announce` to broadcasting `Skip` for that same height, and never reverts. An
+//! incoming `Skip` that replaces a recorded `Announce` for the same height is
+//! therefore treated as that override, not a conflict: the recorded directive is
+//! replaced and any still-parked waiters resolve to [`Resolution::Skip`]. Any
+//! other mismatch (two different `Announce`s, or a later `Announce` for a height
+//! already recorded as `Skip`) is a genuine router anomaly and is logged and
+//! dropped, keeping the first-recorded directive.
 
 use commonware_actor::mailbox;
 use commonware_avs_core::bn254::PublicKey;
@@ -177,12 +183,27 @@ impl<T: TaskData + PartialEq> TaskBook<T> {
         }
         let height = directive.height();
 
-        // Idempotency: first content wins. The router rebroadcasts, so identical
-        // replays are routine; differing content for the same height is a router
-        // anomaly worth surfacing.
+        // Idempotency: identical replays are routine. A recorded `Announce`
+        // overridden by a `Skip` for the same height is the router's one
+        // legitimate change of mind (it latches after `round_timeout`; see the
+        // module docs) — apply it and resolve any still-parked waiters. Any other
+        // mismatch is a genuine anomaly: keep the first-recorded directive.
         if let Some(existing) = self.directives.get(&height) {
             if *existing == directive {
                 trace!(height, "duplicate directive ignored");
+            } else if matches!(existing, TaskDirective::Announce { .. })
+                && matches!(directive, TaskDirective::Skip { .. })
+            {
+                debug!(
+                    height,
+                    "router abandoned previously announced height; switching to skip"
+                );
+                self.directives.insert(height, directive);
+                if let Some(waiters) = self.waiters.remove(&height) {
+                    for waiter in waiters {
+                        let _ = waiter.send(Resolution::Skip);
+                    }
+                }
             } else {
                 warn!(
                     height,
@@ -466,14 +487,53 @@ mod tests {
     }
 
     #[test]
-    fn first_directive_wins_on_conflict() {
+    fn announce_then_skip_overrides_to_skip() {
         with_task_book(|mailbox| async move {
+            // Already resolved from the first directive: unaffected by the
+            // override, since a resolved oneshot cannot be un-resolved.
+            let early = mailbox.subscribe(4);
             mailbox.deliver(announce(4));
-            // A conflicting skip for the same height is dropped.
+            assert!(matches!(early.await.unwrap(), Resolution::Announce(_)));
+            // The router latched to skip after its round timeout: this replaces
+            // the recorded directive, not a conflict.
             mailbox.deliver(TaskDirective::Skip { height: 4 });
+            // A late subscriber now sees the override.
             assert!(matches!(
                 mailbox.subscribe(4).await.unwrap(),
-                Resolution::Announce(_)
+                Resolution::Skip
+            ));
+        });
+    }
+
+    #[test]
+    fn skip_override_is_sticky_against_announce_replay() {
+        with_task_book(|mailbox| async move {
+            mailbox.deliver(announce(4));
+            mailbox.deliver(TaskDirective::Skip { height: 4 });
+            // The router rebroadcasting its old Announce (a race with, or after,
+            // its own switch to skip) must not flip the height back: Skip is
+            // sticky, since the router itself never reverts Skip to Announce.
+            mailbox.deliver(announce(4));
+            assert!(matches!(
+                mailbox.subscribe(4).await.unwrap(),
+                Resolution::Skip
+            ));
+        });
+    }
+
+    #[test]
+    fn differing_announce_conflict_keeps_first() {
+        with_task_book(|mailbox| async move {
+            mailbox.deliver(announce(4));
+            // A second, differing Announce for the same height is not the
+            // Announce-to-Skip override and remains a genuine conflict.
+            mailbox.deliver(TaskDirective::Announce {
+                height: 4,
+                task: TestTask { id: 999 },
+            });
+            assert!(matches!(
+                mailbox.subscribe(4).await.unwrap(),
+                Resolution::Announce(t) if t.id == 4
             ));
         });
     }
