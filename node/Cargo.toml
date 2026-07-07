@@ -18,8 +18,10 @@ ark-serialize = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
+commonware-actor = { workspace = true }
 commonware-avs-core = { path = "../core" }
 commonware-codec = { workspace = true }
+commonware-consensus = { workspace = true }
 commonware-cryptography = { workspace = true }
 commonware-macros = { workspace = true }
 commonware-p2p = { workspace = true }
@@ -46,5 +48,5 @@ url = { workspace = true }
 prost-build = { workspace = true }
 
 [dev-dependencies]
-commonware-actor = { workspace = true }
+commonware-avs-core = { path = "../core", features = ["test-utils"] }
 tokio = { workspace = true, features = ["full", "test-util"] }
