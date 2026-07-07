@@ -1,29 +1,57 @@
-mod creator;
+//! Counter router: verifier-only aggregation engine + task sequencer + on-chain
+//! submitter.
+//!
+//! The router is NOT a signing participant. It runs the commonware aggregation
+//! engine with a verifier-only [`Bn254Scheme`] (`me() == None`): the engine
+//! validates the nodes' acks on channel 0, assembles BN254 certificates at
+//! quorum, journals them, and reports them to the `CertReporter`. Task flow:
+//! poll `Counter.number()` → sequencer (assigns aggregation heights, broadcasts
+//! `TaskDirective`s on channel 1) → nodes sign → engine certifies → submitter
+//! calls `Counter.increment` on-chain.
+
 mod executor;
 mod factories;
 mod provider;
+mod source;
+
 use ark_bn254::Fr;
 use clap::{Arg, Command, value_parser};
-use commonware_avs_core::bn254::{Bn254, PrivateKey, PublicKey};
+use commonware_avs_core::bn254::{Bn254, Bn254Scheme, G1PublicKey, PrivateKey, PublicKey};
+use commonware_avs_core::consensus::StaticEpochMonitor;
 use commonware_avs_eigenlayer::{EigenStakingClient, QuorumInfo};
-use commonware_avs_router::orchestrator::traits::OrchestratorTrait;
+use commonware_avs_router::automaton::RouterAutomaton;
+use commonware_avs_router::reporter::{CertReporter, certified_channel};
+use commonware_avs_router::sequencer::{
+    DispatchTime, Sequencer, TipReports, ingest_tip_reports, resolution_channel, shared_assignments,
+};
+use commonware_consensus::aggregation::{Config as AggregationConfig, Engine};
+use commonware_consensus::types::{Epoch, EpochDelta, HeightDelta};
 use commonware_cryptography::Signer;
+use commonware_cryptography::certificate::{ConstantProvider, Scheme as _};
 use commonware_p2p::authenticated::lookup::{self, Network};
 use commonware_p2p::{Address, AddressableManager};
+use commonware_parallel::Sequential;
+use commonware_runtime::buffer::paged::CacheRef;
 use commonware_runtime::{
     Runner, Spawner, Supervisor,
     tokio::{self},
 };
-use commonware_utils::NZU32;
-use commonware_utils::ordered::Map;
+use commonware_utils::ordered::{Map, Set};
+use commonware_utils::{NZU16, NZU64, NZUsize, NonZeroDuration};
+use counter_common::types::CounterTaskData;
+use counter_common::{
+    ack_messages_per_second, agg_activity_timeout, agg_window, p2p_message_backlog,
+    p2p_quota_period, rebroadcast_interval, round_timeout, storage_directory,
+};
 use eigen_logging::log_level::LogLevel;
 use governor::Quota;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[allow(non_snake_case)]
@@ -44,6 +72,17 @@ fn load_key_from_file(path: &str) -> String {
 // Unique namespace to avoid message replay attacks.
 const APPLICATION_NAMESPACE: &[u8] = b"_COMMONWARE_AGGREGATION_";
 
+/// P2p channel carrying the aggregation engine's acks (engine-internal).
+const ACK_CHANNEL: u64 = 0;
+
+/// P2p channel on which the router broadcasts `TaskDirective`s to the nodes (and
+/// receives their rate-limited TipReport replies).
+const DIRECTIVE_CHANNEL: u64 = 1;
+
+/// Journal partition for the router's verifier-only engine (a subdirectory of
+/// the runtime storage directory).
+const JOURNAL_PARTITION: &str = "aggregation-router";
+
 async fn get_operator_states() -> Result<Vec<QuorumInfo>, Box<dyn std::error::Error>> {
     dotenv::dotenv().ok();
 
@@ -51,16 +90,17 @@ async fn get_operator_states() -> Result<Vec<QuorumInfo>, Box<dyn std::error::Er
     let ws_rpc = env::var("WS_RPC").expect("WS_RPC must be set");
     let avs_deployment_path =
         env::var("AVS_DEPLOYMENT_PATH").expect("AVS_DEPLOYMENT_PATH must be set");
-    println!("pre init");
     let client = EigenStakingClient::new(http_rpc, ws_rpc, avs_deployment_path).await?;
-    println!("init passed");
     client.get_operator_states().await
 }
 
 pub fn main() {
-    // Initialize runtime
-    let runtime_cfg = tokio::Config::default();
-    let runner = tokio::Runner::new(runtime_cfg.clone());
+    // Initialize runtime. A stable storage directory is REQUIRED: the engine's
+    // certificate journal must survive restarts (the runtime default is a
+    // random per-process temp dir, which would silently lose replay).
+    let storage_dir = storage_directory().join("router");
+    let runtime_cfg = tokio::Config::default().with_storage_directory(storage_dir.clone());
+    let runner = tokio::Runner::new(runtime_cfg);
 
     // Parse arguments
     let matches = Command::new("orchestrator")
@@ -94,14 +134,8 @@ pub fn main() {
         .get_one::<String>("port")
         .expect("Please provide port");
     let key = load_key_from_file(key_file);
-    let me = format!("{key}@{port}");
-    let parts = me.split('@').collect::<Vec<&str>>();
-    if parts.len() != 2 {
-        panic!("Identity not well-formed");
-    }
-    let key = parts[0];
-    let signer = get_signer(key);
-    let port = parts[1].parse::<u16>().expect("Port not well-formed");
+    let signer = get_signer(&key);
+    let port = port.parse::<u16>().expect("Port not well-formed");
     tracing::info!(port, "loaded port");
 
     // Configure network
@@ -137,7 +171,6 @@ pub fn main() {
             for participant in participants {
                 let verifier = participant.pub_keys.unwrap().g2_pub_key;
                 if let Some(socket) = participant.socket {
-
                     // Try to resolve hostname:port to socket addresses
                     use std::net::ToSocketAddrs;
                     match socket.to_socket_addrs() {
@@ -164,6 +197,8 @@ pub fn main() {
                     }
                 }
             }
+            // Authorize ourselves too (nodes dial the router from
+            // public_orchestrator.json; this entry is never dialed by us).
             let orchestrator_verifier = signer.public_key();
             recipients.push((orchestrator_verifier, Address::from(my_addr)));
         }
@@ -173,111 +208,159 @@ pub fn main() {
             .finish();
         let _ = tracing::subscriber::set_default(subscriber);
 
+        tracing::info!(storage_dir = %storage_dir.display(), "engine journal storage directory");
+
         // Register the authorized peer set (id 0).
         let authorized = Map::from_iter_dedup(recipients);
         oracle.track(0, authorized);
 
-        // Parse contributors from operator states
-        let mut contributors = Vec::new();
-        let mut contributors_map = HashMap::new();
+        // Build the participant set (sorted G2 keys — participant indices derive
+        // from this order on every process) and the index-aligned G1 keys.
+        // `from_iter_dedup` keeps the first occurrence on a duplicate G2 key —
+        // IDENTICAL to the node's construction, so a duplicate key bound to
+        // different G1 keys cannot misalign the two sides' participant indices.
         let operators = &quorum_infos[0].operators;
         if operators.is_empty() {
             panic!("Please provide at least one contributor");
         }
-        for operator in operators {
-            let verifier = operator.pub_keys.as_ref().unwrap().g2_pub_key.clone();
-            let verifier_g1 = operator.pub_keys.as_ref().unwrap().g1_pub_key.clone();
-            tracing::info!(key = ?verifier, "registered contributor",);
-            contributors.push(verifier.clone());
-            contributors_map.insert(verifier, verifier_g1);
+        let key_map: Map<PublicKey, G1PublicKey> =
+            Map::from_iter_dedup(operators.iter().map(|operator| {
+                let keys = operator.pub_keys.as_ref().expect("operator has BLS keys");
+                tracing::info!(key = ?keys.g2_pub_key, "registered contributor");
+                (keys.g2_pub_key.clone(), keys.g1_pub_key.clone())
+            }));
+        let participants: Set<PublicKey> = Set::from_iter_dedup(key_map.iter().cloned());
+        let g1_keys: Vec<G1PublicKey> = key_map.iter_pairs().map(|(_, g1)| g1.clone()).collect();
+
+        // Verifier-only scheme: the router validates acks and assembles
+        // certificates but never signs (its key is not in the participant set).
+        let scheme = Bn254Scheme::verifier(participants, g1_keys);
+        tracing::info!(
+            participants = scheme.participants().len(),
+            "operator set loaded"
+        );
+
+        // Register channels (must precede network.start()).
+        //
+        // The ack channel needs its own, much larger quota: node engines keep
+        // rebroadcasting each signed height's ack until it falls activity_timeout
+        // below the tip (even after certification), and the p2p limiter silently
+        // drops messages beyond the per-peer rate — an undersized quota here
+        // starves the router of fresh acks and stalls certification.
+        let p2p_backlog = p2p_message_backlog();
+        let p2p_quota = Quota::with_period(p2p_quota_period())
+            .expect("p2p_quota_period always returns a non-zero duration");
+        let ack_rate = ack_messages_per_second();
+        let ack_quota = Quota::per_second(ack_rate);
+        tracing::info!(
+            ack_messages_per_second = ack_rate.get(),
+            "engine channel quota"
+        );
+        let (ack_sender, ack_receiver) = network.register(ACK_CHANNEL, ack_quota, p2p_backlog);
+        // The router SENDS directives on channel 1 and receives the nodes'
+        // rate-limited TipReport replies (journal-loss recovery) on the same
+        // channel.
+        let (directive_sender, directive_receiver) =
+            network.register(DIRECTIVE_CHANNEL, p2p_quota, p2p_backlog);
+
+        // State shared across sequencer / automaton / submitter.
+        let assignments = shared_assignments::<CounterTaskData>();
+        let dispatch_time: DispatchTime = Arc::new(Mutex::new(HashMap::new()));
+        let (certified_sender, certified_receiver) = certified_channel();
+        let (resolution_sender, resolution_receiver) = resolution_channel();
+
+        // Certificate reporter actor (the engine's Reporter).
+        let (cert_reporter, reporter_mailbox) = CertReporter::new(
+            context.child("cert_reporter"),
+            scheme.clone(),
+            certified_sender,
+        );
+        context
+            .child("cert_reporter_actor")
+            .spawn(move |_| cert_reporter.run());
+
+        // Verifier-only aggregation engine on channel 0.
+        let engine = Engine::new(
+            context.child("engine"),
+            AggregationConfig {
+                monitor: StaticEpochMonitor::new(),
+                provider: ConstantProvider::<Bn254Scheme, Epoch>::new(scheme.clone()),
+                automaton: RouterAutomaton::new(assignments.clone()),
+                reporter: reporter_mailbox.clone(),
+                blocker: oracle.clone(),
+                priority_acks: false,
+                rebroadcast_timeout: NonZeroDuration::new_panic(rebroadcast_interval()),
+                // Single static epoch: nothing to keep or accept beyond it.
+                epoch_bounds: (EpochDelta::new(0), EpochDelta::new(0)),
+                window: agg_window(),
+                activity_timeout: HeightDelta::new(agg_activity_timeout()),
+                journal_partition: JOURNAL_PARTITION.to_string(),
+                journal_write_buffer: NZUsize!(4096),
+                journal_replay_buffer: NZUsize!(4096),
+                journal_heights_per_section: NZU64!(64),
+                journal_compression: None,
+                journal_page_cache: CacheRef::from_pooler(&context, NZU16!(4096), NZUsize!(128)),
+                strategy: Sequential,
+            },
+        );
+        engine.start((ack_sender, ack_receiver));
+
+        // Polling task source: reads Counter.number() between rounds and hands
+        // the current round to the sequencer.
+        let task_source = crate::factories::create_task_source()
+            .await
+            .expect("Failed to create task source");
+
+        // On-chain submitter: consumes verified certificates, resolves heights.
+        let submitter = crate::factories::create_submitter(
+            scheme.clone(),
+            assignments.clone(),
+            certified_receiver,
+            resolution_sender,
+            APPLICATION_NAMESPACE.to_vec(),
+        )
+        .await
+        .expect("Failed to create submitter");
+        context.child("submitter").spawn(move |_| submitter.run());
+
+        // Node tip reports (channel 1, node → router): if this router lost its
+        // journal and assigns heights the nodes are already past, their reports
+        // fast-forward the sequencer instead of wedging on a dead height.
+        let tip_reports = TipReports::new(scheme.participants().len());
+        {
+            let participant_keys: HashSet<PublicKey> =
+                scheme.participants().iter().cloned().collect();
+            let tip_reports = tip_reports.clone();
+            context.child("tip_reports").spawn(move |_| async move {
+                ingest_tip_reports::<CounterTaskData, _>(
+                    directive_receiver,
+                    participant_keys,
+                    tip_reports,
+                )
+                .await;
+            });
         }
 
-        let threshold = quorum_infos[0].threshold;
-
-        // Run as the orchestrator using the builder pattern
-        const DEFAULT_MESSAGE_BACKLOG: usize = 256;
-
-        let (sender, receiver) =
-            network.register(0, Quota::per_second(NZU32!(1)), DEFAULT_MESSAGE_BACKLOG);
-
-        // Derive a child context for the orchestrator task before moving the root
-        // context into the builder (the orchestrator applies its own `orchestrator`
-        // metric prefix internally).
-        let orchestrator_context = context.child("orchestrator_task");
-        let builder = commonware_avs_router::orchestrator::builder::OrchestratorBuilder::new(context, signer)
-            .with_contributors(contributors)
-            .with_g1_map(contributors_map)
-            .with_threshold(threshold)
-            .load_from_env(); // Read configuration from environment variables
-
-
-        // Creator (optionally listening)
-        let use_ingress = std::env::var("INGRESS").unwrap_or_default().to_lowercase() == "true";
-        let task_creator: crate::creator::CounterCreatorType = if use_ingress {
-            tracing::info!("Using creator with HTTP server on port 8080");
-            crate::factories::create_listening_creator_with_server("0.0.0.0:8080".to_string())
-                .await
-                .expect("Failed to create listening creator")
-        } else {
-            tracing::info!("Using Creator without ingress");
-            crate::factories::create_creator()
-                .await
-                .expect("Failed to create creator")
-        };
-
-        // Executor (router-side composition)
-        use alloy_provider::ProviderBuilder;
-        use alloy_signer_local::PrivateKeySigner;
-        use std::str::FromStr;
-        use commonware_avs_bindings::bls_apk_registry::BLSApkRegistry;
-        use commonware_avs_bindings::bls_sig_check_operator_state_retriever::BLSSigCheckOperatorStateRetriever;
-        use commonware_avs_bindings::WalletProvider;
-        use counter_common::config::CounterDeployment;
-
-        let http_rpc = std::env::var("HTTP_RPC").expect("HTTP_RPC must be set");
-        let view_only_provider = ProviderBuilder::new().connect_http(url::Url::parse(&http_rpc).unwrap());
-        let deployment = CounterDeployment::load().expect("Failed to load deployment");
-        let bls_apk_registry_address = deployment.bls_apk_registry_address().expect("bls apk registry address");
-        let registry_coordinator_address = deployment.registry_coordinator_address().expect("registry coordinator address");
-        let bls_operator_state_retriever_address = deployment.bls_sig_check_operator_state_retriever_address().expect("bls retriever address");
-        let counter_address = deployment.counter_address().expect("counter address");
-
-        let ecdsa_signer = PrivateKeySigner::from_str(&std::env::var("PRIVATE_KEY").expect("PRIVATE_KEY must be set"))
-            .expect("Failed to parse private key");
-        let write_provider: WalletProvider = ProviderBuilder::new()
-            .wallet(ecdsa_signer)
-            .connect(&http_rpc)
-            .await
-            .expect("Failed to connect write provider");
-
-        let bls_apk_registry = BLSApkRegistry::new(bls_apk_registry_address, view_only_provider.clone());
-        let bls_operator_state_retriever = BLSSigCheckOperatorStateRetriever::new(
-            bls_operator_state_retriever_address,
-            view_only_provider.clone(),
+        // Sequencer: pulls tasks from the source, assigns heights, broadcasts
+        // directives to the operator set (explicit keys — see Sequencer::broadcast).
+        let directive_recipients: Vec<PublicKey> = scheme.participants().iter().cloned().collect();
+        let sequencer = Sequencer::new(
+            task_source,
+            dispatch_time,
+            assignments,
+            reporter_mailbox,
+            resolution_receiver,
+            directive_sender,
+            directive_recipients,
+            tip_reports,
+            round_timeout(),
+            rebroadcast_interval(),
         );
+        context.child("sequencer").spawn(move |_| sequencer.run());
 
-        let counter_handler = crate::factories::create_counter_handler(write_provider, counter_address);
-        let executor = commonware_avs_router::executor::bls::BlsEigenlayerExecutor::new(
-            view_only_provider,
-            bls_apk_registry,
-            bls_operator_state_retriever,
-            registry_coordinator_address,
-            counter_handler,
-        );
-
-        // Validator
-        use counter_common::CounterValidator;
-        let validator = CounterValidator::new()
-            .await
-            .expect("Failed to construct validator");
-
-        // Build generic orchestrator with usecase components
-        let orchestrator = builder
-            .build(task_creator, executor, validator)
-            .expect("Failed to build orchestrator");
-
-        orchestrator_context.spawn(|_| async move { orchestrator.run(sender, receiver).await });
-
+        // Run the network; blocks the root future (and thus the process) until
+        // shutdown. All tasks spawned above are children of this context and
+        // abort when it returns.
         let _ = network.start().await;
     });
 }

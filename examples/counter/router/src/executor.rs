@@ -5,14 +5,15 @@ use alloy::{
 use anyhow::Result;
 use async_trait::async_trait;
 use commonware_avs_bindings::WalletProvider;
-use commonware_avs_bindings::bls_sig_check_operator_state_retriever::BLSSigCheckOperatorStateRetriever::getNonSignerStakesAndSignatureReturn;
-use commonware_avs_router::executor::ExecutionResult;
-use commonware_avs_router::executor::bls::{
-    BlsSignatureVerificationHandler, convert_non_signer_data,
+use commonware_avs_bindings::bls_sig_check_operator_state_retriever::IBLSSignatureCheckerTypes;
+use commonware_avs_router::executor::{
+    BlsSignatureVerificationHandler, ExecutionResult, convert_non_signer_data,
 };
 use counter_bindings::{self as counter, Counter};
 use counter_common::types::CounterTaskData;
 
+/// Submits a certified height's BLS verification to the deployed `Counter`
+/// contract's `increment` entry point.
 pub struct CounterHandler {
     pub counter: Counter::CounterInstance<WalletProvider, Ethereum>,
 }
@@ -26,13 +27,14 @@ impl CounterHandler {
 #[async_trait]
 impl BlsSignatureVerificationHandler for CounterHandler {
     type TaskData = CounterTaskData;
+
     async fn handle_verification(
         &mut self,
-        _round: u64,
+        _height: u64,
         msg_hash: FixedBytes<32>,
         quorum_numbers: Bytes,
-        current_block_number: u32,
-        non_signer_data: getNonSignerStakesAndSignatureReturn,
+        reference_block_number: u32,
+        non_signer_data: IBLSSignatureCheckerTypes::NonSignerStakesAndSignature,
         _task_data: Option<&Self::TaskData>,
     ) -> Result<ExecutionResult> {
         let converted_data = convert_non_signer_data(non_signer_data);
@@ -67,7 +69,7 @@ impl BlsSignatureVerificationHandler for CounterHandler {
             .increment(
                 msg_hash,
                 quorum_numbers,
-                current_block_number,
+                reference_block_number,
                 non_signer_struct_data,
             )
             .send()

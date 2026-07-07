@@ -21,8 +21,10 @@ commonware-avs-bindings = { path = "../../../bindings" }
 commonware-avs-core = { path = "../../../core" }
 commonware-avs-eigenlayer = { path = "../../../eigenlayer" }
 commonware-avs-router = { path = "../../../router" }
+commonware-consensus = { workspace = true }
 commonware-cryptography = { workspace = true }
 commonware-p2p = { workspace = true }
+commonware-parallel = { workspace = true }
 commonware-runtime = { workspace = true }
 commonware-utils = { workspace = true }
 counter-bindings = { path = "../bindings" }

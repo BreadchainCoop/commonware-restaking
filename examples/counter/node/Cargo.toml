@@ -9,16 +9,15 @@ name = "counter-node"
 path = "src/app.rs"
 
 [dependencies]
-anyhow = { workspace = true }
 ark-bn254 = { workspace = true }
-async-trait = { workspace = true }
 clap = { workspace = true }
 commonware-avs-core = { path = "../../../core" }
 commonware-avs-eigenlayer = { path = "../../../eigenlayer" }
 commonware-avs-node = { path = "../../../node" }
-commonware-avs-router = { path = "../../../router" }
+commonware-consensus = { workspace = true }
 commonware-cryptography = { workspace = true }
 commonware-p2p = { workspace = true }
+commonware-parallel = { workspace = true }
 commonware-runtime = { workspace = true }
 commonware-utils = { workspace = true }
 counter-common = { path = "../common" }
