@@ -85,7 +85,7 @@ where
     /// Height → expected digest + task, written by the sequencer.
     assignments: SharedAssignments<T>,
     /// Verified certificates from the reporter.
-    certified: CertifiedReceiver,
+    certified: CertifiedReceiver<Bn254Scheme>,
     /// Final dispositions back to the sequencer.
     resolutions: ResolutionSender,
     /// Application namespace bound into [`skip_digest`], matching the namespace
@@ -113,7 +113,7 @@ where
         registry_coordinator_address: Address,
         handler: H,
         assignments: SharedAssignments<T>,
-        certified: CertifiedReceiver,
+        certified: CertifiedReceiver<Bn254Scheme>,
         resolutions: ResolutionSender,
         namespace: Vec<u8>,
         quorum_numbers: Bytes,
@@ -150,7 +150,7 @@ where
         }
     }
 
-    async fn handle_certified(&mut self, certified: CertifiedHeight) {
+    async fn handle_certified(&mut self, certified: CertifiedHeight<Bn254Scheme>) {
         let CertifiedHeight {
             height,
             digest,

@@ -332,7 +332,7 @@ pub fn main() {
                 scheme.participants().iter().cloned().collect();
             let tip_reports = tip_reports.clone();
             context.child("tip_reports").spawn(move |_| async move {
-                ingest_tip_reports::<CounterTaskData, _>(
+                ingest_tip_reports::<CounterTaskData, _, _>(
                     directive_receiver,
                     participant_keys,
                     tip_reports,

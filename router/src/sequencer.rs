@@ -25,10 +25,10 @@
 //! certificates) are resolved by the nodes' auto-skip rule once they see this
 //! router's first directive for a higher height.
 
-use crate::reporter::CertReporterMailbox;
-use commonware_avs_core::bn254::PublicKey;
+use crate::reporter::CertIndex;
 use commonware_avs_core::wire::{TaskData, TaskDirective};
 use commonware_codec::{DecodeExt, Encode};
+use commonware_cryptography::PublicKey;
 use commonware_cryptography::sha256::Digest;
 use commonware_p2p::{Receiver as NetworkReceiver, Recipients, Sender as NetworkSender};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -179,14 +179,14 @@ enum HeightOutcome {
 /// Callers must only [`TipReports::record`] reports from authenticated quorum
 /// participants (see [`ingest_tip_reports`]).
 #[derive(Clone)]
-pub struct TipReports {
+pub struct TipReports<P: PublicKey> {
     /// Highest tip reported per participant (monotonic).
-    reports: Arc<RwLock<BTreeMap<PublicKey, u64>>>,
+    reports: Arc<RwLock<BTreeMap<P, u64>>>,
     /// Faults tolerated by the engine's N3f1 quorum rule.
     max_faults: usize,
 }
 
-impl TipReports {
+impl<P: PublicKey> TipReports<P> {
     pub fn new(participant_count: usize) -> Self {
         Self {
             reports: Arc::new(RwLock::new(BTreeMap::new())),
@@ -195,7 +195,7 @@ impl TipReports {
     }
 
     /// Records `tip` for `peer`, keeping the per-peer maximum.
-    pub fn record(&self, peer: PublicKey, tip: u64) {
+    pub fn record(&self, peer: P, tip: u64) {
         if let Ok(mut reports) = self.reports.write() {
             let entry = reports.entry(peer).or_insert(0);
             *entry = (*entry).max(tip);
@@ -219,13 +219,14 @@ impl TipReports {
 /// Only quorum participants may influence the sequencer's height choice; other
 /// directive variants (the router's own broadcasts echoed back by a buggy peer)
 /// are ignored. Malformed payloads are logged and dropped.
-pub async fn ingest_tip_reports<T, R>(
+pub async fn ingest_tip_reports<T, P, R>(
     mut receiver: R,
-    participants: HashSet<PublicKey>,
-    reports: TipReports,
+    participants: HashSet<P>,
+    reports: TipReports<P>,
 ) where
     T: TaskData,
-    R: NetworkReceiver<PublicKey = PublicKey>,
+    P: PublicKey,
+    R: NetworkReceiver<PublicKey = P>,
 {
     loop {
         match receiver.recv().await {
@@ -259,10 +260,12 @@ pub async fn ingest_tip_reports<T, R>(
 }
 
 /// Pulls tasks from the application and drives one aggregation height at a time.
-pub struct Sequencer<T, S, TS>
+pub struct Sequencer<T, P, S, R, TS>
 where
     T: TaskData,
-    S: NetworkSender<PublicKey = PublicKey>,
+    P: PublicKey,
+    S: NetworkSender<PublicKey = P>,
+    R: CertIndex,
     TS: TaskSource<T>,
 {
     source: TS,
@@ -271,7 +274,7 @@ where
     /// Shared with the automaton and submitter.
     assignments: SharedAssignments<T>,
     /// Certificate observations (tip + per-height digests) from the engine.
-    reporter: CertReporterMailbox,
+    reporter: R,
     /// Final dispositions from the submitter.
     resolutions: ResolutionReceiver,
     /// Broadcasts [`TaskDirective`]s to the nodes on the directive p2p channel.
@@ -284,19 +287,21 @@ where
     /// send side (its inbound-heavy directive-channel usage never warms it),
     /// silently dropping every `Announce`. Addressing the known operator set
     /// directly bypasses that snapshot.
-    recipients: Vec<PublicKey>,
+    recipients: Vec<P>,
     /// Node tip reports; a safe tip above the driven height supersedes it.
-    tip_reports: TipReports,
+    tip_reports: TipReports<P>,
     /// Next height to assign; only advances when the current height resolves.
     next_height: u64,
     round_timeout: Duration,
     rebroadcast_interval: Duration,
 }
 
-impl<T, S, TS> Sequencer<T, S, TS>
+impl<T, P, S, R, TS> Sequencer<T, P, S, R, TS>
 where
     T: TaskData,
-    S: NetworkSender<PublicKey = PublicKey>,
+    P: PublicKey,
+    S: NetworkSender<PublicKey = P>,
+    R: CertIndex,
     TS: TaskSource<T>,
 {
     #[allow(clippy::too_many_arguments)]
@@ -304,11 +309,11 @@ where
         source: TS,
         dispatch_time: DispatchTime,
         assignments: SharedAssignments<T>,
-        reporter: CertReporterMailbox,
+        reporter: R,
         resolutions: ResolutionReceiver,
         directive_sender: S,
-        recipients: Vec<PublicKey>,
-        tip_reports: TipReports,
+        recipients: Vec<P>,
+        tip_reports: TipReports<P>,
         round_timeout: Duration,
         rebroadcast_interval: Duration,
     ) -> Self {

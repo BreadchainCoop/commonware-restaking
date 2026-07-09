@@ -347,7 +347,7 @@ pub fn main() {
         }
 
         // Reporter actor: certificate/tip accounting + TaskBook pruning.
-        let (node_reporter, reporter_mailbox) = NodeReporter::new(
+        let (node_reporter, reporter_mailbox) = NodeReporter::<_, Bn254Scheme>::new(
             context.child("reporter"),
             task_book_mailbox.clone(),
             Arc::clone(&engine_tip),

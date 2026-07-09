@@ -10,11 +10,11 @@
 //! [`TaskBook`]: crate::task_book::TaskBook
 
 use commonware_actor::{Feedback, mailbox};
-use commonware_avs_core::bn254::Bn254Scheme;
 use commonware_avs_core::consensus::PRUNE_SLACK;
 use commonware_avs_core::wire::{TaskData, skip_digest};
 use commonware_consensus::Reporter;
 use commonware_consensus::aggregation::types::Activity;
+use commonware_cryptography::certificate::Scheme;
 use commonware_cryptography::sha256::Digest;
 use commonware_runtime::Metrics;
 use commonware_runtime::telemetry::metrics::{Counter, Gauge, GaugeExt as _, raw};
@@ -32,9 +32,9 @@ const MAILBOX_CAPACITY: usize = 1024;
 /// Activities reported by the engine, wrapped so the overflow policy can be
 /// implemented locally (never drop: a lost `Certified` would undercount and a
 /// lost `Tip` could stall TaskBook pruning until the next fast-forward).
-struct Report(Activity<Bn254Scheme, Digest>);
+struct Report<S: Scheme>(Activity<S, Digest>);
 
-impl mailbox::Policy for Report {
+impl<S: Scheme> mailbox::Policy for Report<S> {
     type Overflow = VecDeque<Self>;
 
     fn handle(overflow: &mut VecDeque<Self>, message: Self) {
@@ -44,12 +44,12 @@ impl mailbox::Policy for Report {
 
 /// Handle given to the engine (`Config::reporter`). Cheap to clone.
 #[derive(Clone)]
-pub struct ReporterMailbox {
-    sender: mailbox::Sender<Report>,
+pub struct ReporterMailbox<S: Scheme> {
+    sender: mailbox::Sender<Report<S>>,
 }
 
-impl Reporter for ReporterMailbox {
-    type Activity = Activity<Bn254Scheme, Digest>;
+impl<S: Scheme> Reporter for ReporterMailbox<S> {
+    type Activity = Activity<S, Digest>;
 
     /// Enqueues the activity for the actor; never blocks (the engine calls this
     /// inline from its event loop and during journal replay).
@@ -59,8 +59,8 @@ impl Reporter for ReporterMailbox {
 }
 
 /// Actor that consumes reported activities.
-pub struct NodeReporter<T: TaskData + PartialEq> {
-    mailbox: mailbox::Receiver<Report>,
+pub struct NodeReporter<T: TaskData + PartialEq, S: Scheme> {
+    mailbox: mailbox::Receiver<Report<S>>,
     /// Prunes resolved directives as the engine's tip advances.
     task_book: TaskBookMailbox<T>,
     /// Application namespace bound into [`skip_digest`], matching the namespace
@@ -85,7 +85,7 @@ pub struct NodeReporter<T: TaskData + PartialEq> {
     skipped_counter: Counter,
 }
 
-impl<T: TaskData + PartialEq> NodeReporter<T> {
+impl<T: TaskData + PartialEq, S: Scheme> NodeReporter<T, S> {
     /// Creates the actor and the mailbox handle to wire into the engine config.
     ///
     /// `context` labels the mailbox and metrics in the runtime registry;
@@ -97,7 +97,7 @@ impl<T: TaskData + PartialEq> NodeReporter<T> {
         task_book: TaskBookMailbox<T>,
         tip_handle: Arc<AtomicU64>,
         namespace: Vec<u8>,
-    ) -> (Self, ReporterMailbox) {
+    ) -> (Self, ReporterMailbox<S>) {
         let height_gauge = context.register(
             "height",
             "highest aggregation height observed via certificate or tip",
@@ -150,7 +150,6 @@ impl<T: TaskData + PartialEq> NodeReporter<T> {
                         info!(
                             height,
                             digest = ?certificate.item.digest,
-                            signers = certificate.certificate.signers.count(),
                             "height certified"
                         );
                     }
