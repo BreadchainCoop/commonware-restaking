@@ -2,7 +2,7 @@
 
 Monorepo for the Commonware AVS reference implementation on EigenLayer. It contains:
 
-- [`core`](./core): Core protocol types — BN254 certificate scheme for the commonware-consensus aggregation engine, validators, wire formats, and utility code
+- [`core`](./core): Core protocol types — BN254 and ECDSA (secp256k1) certificate schemes for the commonware-consensus aggregation engine, validators, wire formats, and utility code
 - [`bindings`](./bindings): Standalone crate for on-chain contract bindings
 - [`router`](./router): Generic library for running the aggregation router: task sequencer, verifier-only aggregation engine, and on-chain certificate submitter
 - [`node`](./node): Generic library for running an operator node: aggregation-engine participant actors (task book, automaton, reporter)
@@ -25,14 +25,38 @@ Tasks flow through a fixed operator set as a sequence of *aggregation heights*:
    against its own view of the world (the application's `ValidatorTrait`
    implementation) and signs the expected task digest — or the skip digest for an
    abandoned height. Signatures travel as acks on channel 0, gossiped by the
-   commonware-consensus aggregation engine running a BN254 multisig certificate
+   commonware-consensus aggregation engine running the deployment's certificate
    scheme.
 3. **The router certifies and submits.** The router runs the same engine
-   verifier-only: it validates acks and assembles a certificate (signer bitmap +
-   aggregated signature) once quorum is reached. The submitter maps the bitmap to
-   registered operator addresses via `BLSApkRegistry`, fetches
-   `NonSignerStakesAndSignature`, and hands both to the application's handler for
-   the on-chain BLS verification call.
+   verifier-only: it validates acks and assembles a certificate once quorum is
+   reached. A scheme-specific submitter resolves the certificate into on-chain
+   calldata and hands it to the application's handler for the verification call.
+
+### Signature schemes
+
+The actor chassis (sequencer, task book, automatons, reporters) is generic over
+`commonware_cryptography::certificate::Scheme` and the p2p identity type, so a
+deployment picks its scheme at wiring time. Two single-shot schemes ship in
+[`core`](./core):
+
+- **BN254 multisig** (`core::bn254`): the G2 operator key doubles as the p2p
+  identity; certificates carry one aggregated G1 signature. The
+  [`Submitter`](./router/src/submitter.rs) resolves signers through
+  `BLSApkRegistry` and fetches `NonSignerStakesAndSignature` for on-chain BLS
+  verification.
+- **ECDSA secp256k1** (`core::ecdsa`): the operator's Ethereum key is both the
+  p2p identity (20-byte address) and the signing key; certificates carry one
+  65-byte signature per signer in participant order. The
+  [`EcdsaSubmitter`](./router/src/ecdsa_submitter.rs) hands
+  `(operators[], signatures[])` to the application's handler (e.g. an ERC-1271
+  stake-registry check).
+
+Schemes with needs beyond single-shot signing (extra protocol rounds, nonce
+management, side storage) live in the application, plugged in through the same
+seams the built-in schemes use: implement `certificate::Scheme` for the engine,
+`CertIndex` to drive the shared sequencer, and consume certificates generically —
+router-side via the `CertifiedHeight<S>` channel, node-side via the reporter's
+opt-in `CertificateObservation<S>` tap (`NodeReporter::with_certificate_tap`).
 
 Quorum is engine-fixed at N3f1 — `n − ⌊(n−1)/3⌋` of `n` operators (3-of-3 at n=3,
 3-of-4 at n=4). Deployments should run n ≥ 4 in production so a single unavailable
