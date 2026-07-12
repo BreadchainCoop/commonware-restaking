@@ -306,6 +306,17 @@ fn resolution<T: TaskData + PartialEq>(directive: &TaskDirective<T>) -> Resoluti
     }
 }
 
+/// Returns whether `height` falls at or beyond the engine's proposal window,
+/// i.e. `height >= tip + window` (saturating, so an overflowing `tip + window`
+/// is treated as unreachable rather than wrapping).
+///
+/// A height out here can never be proposed by this node's engine — it only
+/// calls `Automaton::propose` for `[tip, tip + window)` — so a directive for it
+/// is a signal the node's tip is stuck, not routine router noise.
+fn beyond_window(height: u64, tip: u64, window: u64) -> bool {
+    height >= tip.saturating_add(window)
+}
+
 /// Consumes p2p channel 1, decoding [`TaskDirective`]s and feeding the TaskBook.
 ///
 /// Only the router assigns heights, so directives from any other (authorized but
@@ -320,12 +331,23 @@ fn resolution<T: TaskData + PartialEq>(directive: &TaskDirective<T>) -> Resoluti
 /// the router would rebroadcast a dead height forever, wedging the pipeline — so
 /// the node replies with a rate-limited [`TaskDirective::TipReport`] carrying its
 /// tip, and the router fast-forwards its next assignment.
+///
+/// `window` is the same value passed as the engine config's `window`: the number
+/// of heights above `tip` the engine works on concurrently. A directive at or
+/// past `tip + window` can never be proposed locally, so this node can never sign
+/// it — evidence its tip has stopped advancing (typically because it cannot reach
+/// its peer operators and so never assembles the certificates that move the
+/// tip), even though it can still reach the router. That condition produces no
+/// TipReport (the directive isn't below tip) and no error anywhere else, so it is
+/// logged here via a rate-limited `warn!` — observability only; the directive is
+/// still delivered to the TaskBook exactly as any other.
 pub async fn ingest<T, R, S>(
     mut receiver: R,
     mut sender: S,
     router: PublicKey,
     task_book: TaskBookMailbox<T>,
     engine_tip: Arc<AtomicU64>,
+    window: u64,
     min_report_interval: Duration,
 ) where
     T: TaskData + PartialEq,
@@ -333,6 +355,7 @@ pub async fn ingest<T, R, S>(
     S: Sender<PublicKey = PublicKey>,
 {
     let mut last_report: Option<Instant> = None;
+    let mut last_beyond_window_warning: Option<Instant> = None;
     loop {
         match receiver.recv().await {
             Ok((peer, bytes)) => {
@@ -348,16 +371,31 @@ pub async fn ingest<T, R, S>(
                     Ok(directive) => {
                         trace!(height = directive.height(), "received task directive");
                         let tip = engine_tip.load(Ordering::Relaxed);
-                        if directive.height() < tip
+                        let directive_height = directive.height();
+                        if directive_height < tip
                             && last_report.is_none_or(|at| at.elapsed() >= min_report_interval)
                         {
                             last_report = Some(Instant::now());
                             debug!(
-                                directive_height = directive.height(),
+                                directive_height,
                                 tip, "directive below engine tip; reporting tip to router"
                             );
                             let report = TaskDirective::<T>::TipReport { height: tip }.encode();
                             let _ = sender.send(Recipients::One(router.clone()), report, true);
+                        }
+                        if beyond_window(directive_height, tip, window)
+                            && last_beyond_window_warning
+                                .is_none_or(|at| at.elapsed() >= min_report_interval)
+                        {
+                            last_beyond_window_warning = Some(Instant::now());
+                            warn!(
+                                directive_height,
+                                tip,
+                                window,
+                                "directive beyond the engine's proposal window; this node cannot \
+                                 sign it — engine tip is not advancing (check operator-to-operator \
+                                 connectivity)"
+                            );
                         }
                         task_book.deliver(directive);
                     }
@@ -550,5 +588,26 @@ mod tests {
                 Err(oneshot::error::TryRecvError::Empty)
             ));
         });
+    }
+
+    // `ingest` takes p2p `Receiver`/`Sender` trait objects with no lightweight
+    // mock available in this workspace (unlike the deterministic actor harness
+    // above, which only needs the TaskBook mailbox). The threshold check is
+    // factored into `beyond_window` so it can be unit tested directly instead.
+    #[test]
+    fn beyond_window_boundaries() {
+        // Last height still inside the window: tip + window - 1.
+        assert!(!beyond_window(9, 0, 10));
+        assert!(!beyond_window(19, 10, 10));
+        // First height outside the window: tip + window.
+        assert!(beyond_window(10, 0, 10));
+        assert!(beyond_window(20, 10, 10));
+        // Well past the window.
+        assert!(beyond_window(100, 10, 10));
+        // Overflowing tip + window saturates instead of wrapping, so a huge
+        // height is (correctly) still reported as beyond the window rather than
+        // spuriously appearing "within" it after wraparound.
+        assert!(beyond_window(u64::MAX, u64::MAX - 1, 10));
+        assert!(!beyond_window(u64::MAX - 1, u64::MAX - 1, 10));
     }
 }

@@ -339,6 +339,7 @@ pub fn main() {
                     router_key,
                     task_book_mailbox,
                     engine_tip,
+                    agg_window().get(),
                     min_report_interval,
                 )
                 .await;
