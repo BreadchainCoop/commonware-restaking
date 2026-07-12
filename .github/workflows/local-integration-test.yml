@@ -62,14 +62,18 @@ jobs:
 
       - name: Update config for host-based router
         run: |
-          # Update node addresses in config.example.json to use localhost
-          # instead of Docker DNS names, since the router runs on the host.
-          # EigenLayer will use this file to register operators on-chain.
-          sed -i 's|"node-1:3001"|"localhost:4001"|g' config/config.example.json
-          sed -i 's|"node-2:3002"|"localhost:4002"|g' config/config.example.json
-          sed -i 's|"node-3:3003"|"localhost:4003"|g' config/config.example.json
+          # The operator sockets registered on-chain (node-N:300x) are dialed by
+          # BOTH the containerized nodes (via Docker DNS) and the host-based
+          # router. Rewriting them to localhost would break node<->node dialing
+          # (localhost inside a container is the container itself), collapsing
+          # the mesh into a star through the router: nodes would then never see
+          # each other's acks, their engine tips would never advance, and
+          # aggregation would wedge after exactly AGG_WINDOW heights. Instead,
+          # keep the Docker DNS names and teach the host to resolve them to the
+          # published container ports.
+          echo "127.0.0.1 node-1 node-2 node-3" | sudo tee -a /etc/hosts
 
-          # Also create config.json for consistency
+          # Create config.json for consistency
           cp config/config.example.json config/config.json
 
       - name: Pull required Docker images

@@ -67,7 +67,7 @@ services:
         "/app/public_orchestrator.json",
       ]
     ports:
-      - "4001:3001"
+      - "3001:3001"
     restart: unless-stopped
 
   node-2:
@@ -103,7 +103,7 @@ services:
         "/app/public_orchestrator.json",
       ]
     ports:
-      - "4002:3002"
+      - "3002:3002"
     restart: unless-stopped
 
   node-3:
@@ -139,7 +139,7 @@ services:
         "/app/public_orchestrator.json",
       ]
     ports:
-      - "4003:3003"
+      - "3003:3003"
     restart: unless-stopped
 
   router:
