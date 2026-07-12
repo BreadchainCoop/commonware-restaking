@@ -38,6 +38,14 @@ Quorum is engine-fixed at N3f1 — `n − ⌊(n−1)/3⌋` of `n` operators (3-o
 3-of-4 at n=4). Deployments should run n ≥ 4 in production so a single unavailable
 operator does not halt certification.
 
+**Operators must be mutually reachable.** Liveness depends on ack gossip between
+participants: a node only advances its own tip by assembling certificates from its
+peers' acks, and its engine only proposes heights within `AGG_WINDOW` of that tip.
+In a topology where operators reach the router but not each other, node tips never
+advance and aggregation wedges after exactly `AGG_WINDOW` heights — the registered
+operator sockets must resolve and connect from every other operator, not just from
+the router.
+
 Both engines journal their progress under `STORAGE_DIR`. The journal is safe to
 lose: nodes simply re-sign whatever the router drives next, and a router that lost
 its journal recovers its position from journal replay and the nodes' tip reports.
