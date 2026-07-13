@@ -34,10 +34,10 @@
 //! dropped, keeping the first-recorded directive.
 
 use commonware_actor::mailbox;
-use commonware_avs_core::bn254::PublicKey;
 use commonware_avs_core::consensus::PRUNE_SLACK;
 use commonware_avs_core::wire::{TaskData, TaskDirective};
 use commonware_codec::{DecodeExt, Encode};
+use commonware_cryptography::PublicKey;
 use commonware_p2p::{Receiver, Recipients, Sender};
 use commonware_runtime::Metrics;
 use commonware_utils::NZUsize;
@@ -341,18 +341,19 @@ fn beyond_window(height: u64, tip: u64, window: u64) -> bool {
 /// TipReport (the directive isn't below tip) and no error anywhere else, so it is
 /// logged here via a rate-limited `warn!` — observability only; the directive is
 /// still delivered to the TaskBook exactly as any other.
-pub async fn ingest<T, R, S>(
+pub async fn ingest<T, P, R, S>(
     mut receiver: R,
     mut sender: S,
-    router: PublicKey,
+    router: P,
     task_book: TaskBookMailbox<T>,
     engine_tip: Arc<AtomicU64>,
     window: u64,
     min_report_interval: Duration,
 ) where
     T: TaskData + PartialEq,
-    R: Receiver<PublicKey = PublicKey>,
-    S: Sender<PublicKey = PublicKey>,
+    P: PublicKey,
+    R: Receiver<PublicKey = P>,
+    S: Sender<PublicKey = P>,
 {
     let mut last_report: Option<Instant> = None;
     let mut last_beyond_window_warning: Option<Instant> = None;

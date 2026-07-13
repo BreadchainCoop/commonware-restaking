@@ -15,11 +15,12 @@
 //! pre-restart heights.
 
 use commonware_actor::{Feedback, mailbox};
-use commonware_avs_core::bn254::{Bn254Certificate, Bn254Scheme};
 use commonware_avs_core::consensus::PRUNE_SLACK;
 use commonware_consensus::Reporter;
+use commonware_consensus::aggregation::scheme::Scheme as AggregationScheme;
 use commonware_consensus::aggregation::types::{Activity, Certificate};
 use commonware_consensus::types::Height;
+use commonware_cryptography::certificate::Scheme;
 use commonware_cryptography::sha256::Digest;
 use commonware_parallel::Sequential;
 use commonware_runtime::Metrics;
@@ -32,23 +33,30 @@ use tracing::{debug, error, info, trace, warn};
 
 /// A certificate observation handed to the height's consumer.
 #[derive(Clone, Debug)]
-pub struct CertifiedHeight {
+pub struct CertifiedHeight<S: Scheme> {
     /// The aggregation height the certificate covers.
     pub height: u64,
     /// The certified digest — either a task's expected payload hash or
     /// `skip_digest(height)`.
     pub digest: Digest,
-    /// The BN254 certificate (signer bitmap + aggregated G1 signature) as
-    /// assembled by the engine and re-verified by this reporter.
-    pub certificate: Bn254Certificate,
+    /// The scheme's certificate as assembled by the engine and re-verified by
+    /// this reporter.
+    pub certificate: S::Certificate,
 }
 
-pub type CertifiedSender = UnboundedSender<CertifiedHeight>;
-pub type CertifiedReceiver = UnboundedReceiver<CertifiedHeight>;
+pub type CertifiedSender<S> = UnboundedSender<CertifiedHeight<S>>;
+pub type CertifiedReceiver<S> = UnboundedReceiver<CertifiedHeight<S>>;
 
 /// Channel carrying verified certificates from the reporter to their consumer.
-pub fn certified_channel() -> (CertifiedSender, CertifiedReceiver) {
+pub fn certified_channel<S: Scheme>() -> (CertifiedSender<S>, CertifiedReceiver<S>) {
     tokio::sync::mpsc::unbounded_channel()
+}
+
+/// Read-only view of certificate progress used by the sequencer: the next height
+/// needing a certificate, and the certified digest for a height (if observed).
+pub trait CertIndex: Clone + Send + 'static {
+    fn get_tip(&self) -> impl Future<Output = u64> + Send;
+    fn get(&self, height: u64) -> impl Future<Output = Option<Digest>> + Send;
 }
 
 /// Mailbox capacity before messages spill to the unbounded overflow queue.
@@ -58,9 +66,9 @@ pub fn certified_channel() -> (CertifiedSender, CertifiedReceiver) {
 const MAILBOX_CAPACITY: usize = 1024;
 
 /// Messages processed by the [`CertReporter`] actor.
-enum Message {
+enum Message<S: Scheme> {
     /// A newly assembled (or replayed) certificate from the engine.
-    Certified(Certificate<Bn254Scheme, Digest>),
+    Certified(Certificate<S, Digest>),
     /// A tip fast-forward from the engine.
     Tip(Height),
     /// Query: the next height the engine needs a certificate for.
@@ -69,7 +77,7 @@ enum Message {
     Get(u64, oneshot::Sender<Option<Digest>>),
 }
 
-impl mailbox::Policy for Message {
+impl<S: Scheme> mailbox::Policy for Message<S> {
     type Overflow = VecDeque<Self>;
 
     fn handle(overflow: &mut VecDeque<Self>, message: Self) {
@@ -82,12 +90,12 @@ impl mailbox::Policy for Message {
 /// Handle for reporting to and querying the [`CertReporter`] actor. Cheap to
 /// clone; the clone handed to the engine is its `Reporter`.
 #[derive(Clone)]
-pub struct CertReporterMailbox {
-    sender: mailbox::Sender<Message>,
+pub struct CertReporterMailbox<S: Scheme> {
+    sender: mailbox::Sender<Message<S>>,
 }
 
-impl Reporter for CertReporterMailbox {
-    type Activity = Activity<Bn254Scheme, Digest>;
+impl<S: Scheme> Reporter for CertReporterMailbox<S> {
+    type Activity = Activity<S, Digest>;
 
     fn report(&mut self, activity: Self::Activity) -> Feedback {
         match activity {
@@ -102,11 +110,11 @@ impl Reporter for CertReporterMailbox {
     }
 }
 
-impl CertReporterMailbox {
+impl<S: Scheme> CertIndex for CertReporterMailbox<S> {
     /// Returns the engine's observed tip: the next height needing a certificate
     /// (max of reported tips and `certified height + 1`). `0` until the engine
     /// reports anything, or when the actor is gone (shutdown).
-    pub async fn get_tip(&self) -> u64 {
+    async fn get_tip(&self) -> u64 {
         let (responder, receiver) = oneshot::channel();
         if !self.sender.enqueue(Message::GetTip(responder)).accepted() {
             warn!("cert reporter closed; tip query unanswered");
@@ -117,7 +125,7 @@ impl CertReporterMailbox {
 
     /// Returns the certified digest for `height`, if a certificate was observed
     /// (and not yet pruned). `None` when the actor is gone.
-    pub async fn get(&self, height: u64) -> Option<Digest> {
+    async fn get(&self, height: u64) -> Option<Digest> {
         let (responder, receiver) = oneshot::channel();
         if !self
             .sender
@@ -133,25 +141,27 @@ impl CertReporterMailbox {
 
 /// Actor owning the certificate log. The context doubles as the RNG for the
 /// defensive certificate re-verification.
-pub struct CertReporter<E>
+pub struct CertReporter<E, S>
 where
     E: Metrics + CryptoRngCore + Send + 'static,
+    S: AggregationScheme<Digest>,
 {
     context: E,
-    mailbox: mailbox::Receiver<Message>,
+    mailbox: mailbox::Receiver<Message<S>>,
     /// Verifier scheme (`me() == None`) used to re-verify certificates.
-    scheme: Bn254Scheme,
+    scheme: S,
     /// Certified digest per height: dedupe (replay-idempotency) + query source.
     certified: BTreeMap<u64, Digest>,
-    /// Next height the engine needs a certificate for (see [`CertReporterMailbox::get_tip`]).
+    /// Next height the engine needs a certificate for (see [`CertIndex::get_tip`]).
     tip: u64,
     /// Verified certificates bound for the height's consumer.
-    submit: CertifiedSender,
+    submit: CertifiedSender<S>,
 }
 
-impl<E> CertReporter<E>
+impl<E, S> CertReporter<E, S>
 where
     E: Metrics + CryptoRngCore + Send + 'static,
+    S: AggregationScheme<Digest>,
 {
     /// Creates the actor and its mailbox handle.
     ///
@@ -159,9 +169,9 @@ where
     /// `scheme` must be the same verifier instance the engine runs with.
     pub fn new(
         context: E,
-        scheme: Bn254Scheme,
-        submit: CertifiedSender,
-    ) -> (Self, CertReporterMailbox) {
+        scheme: S,
+        submit: CertifiedSender<S>,
+    ) -> (Self, CertReporterMailbox<S>) {
         let (sender, receiver) = mailbox::new(context.child("mailbox"), NZUsize!(MAILBOX_CAPACITY));
         (
             Self {
@@ -193,7 +203,7 @@ where
         info!("cert reporter mailbox closed; exiting");
     }
 
-    fn handle_certified(&mut self, certificate: Certificate<Bn254Scheme, Digest>) {
+    fn handle_certified(&mut self, certificate: Certificate<S, Digest>) {
         let height = certificate.item.height.get();
         let digest = certificate.item.digest;
 
@@ -265,10 +275,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use commonware_avs_core::bn254::{Bn254, G1PublicKey, PublicKey};
+    use commonware_avs_core::bn254::{Bn254, Bn254Scheme, G1PublicKey, PublicKey};
     use commonware_consensus::aggregation::types::{Ack, Item};
     use commonware_consensus::types::Epoch;
-    use commonware_cryptography::certificate::Scheme;
     use commonware_cryptography::{Hasher, Sha256, Signer};
     use commonware_runtime::{Runner, Spawner, Supervisor, deterministic};
     use commonware_utils::TryCollect;
@@ -333,7 +342,9 @@ mod tests {
     /// mailbox and a raw `CertifiedReceiver` to `f`.
     fn with_reporter<F, Fut>(scheme: Bn254Scheme, f: F)
     where
-        F: FnOnce(CertReporterMailbox, CertifiedReceiver) -> Fut + Send + 'static,
+        F: FnOnce(CertReporterMailbox<Bn254Scheme>, CertifiedReceiver<Bn254Scheme>) -> Fut
+            + Send
+            + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
         let executor = deterministic::Runner::default();

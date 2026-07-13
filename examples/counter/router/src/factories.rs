@@ -54,7 +54,7 @@ pub async fn create_task_source() -> Result<CounterTaskSource> {
 pub async fn create_submitter(
     scheme: Bn254Scheme,
     assignments: SharedAssignments<CounterTaskData>,
-    certified: CertifiedReceiver,
+    certified: CertifiedReceiver<Bn254Scheme>,
     resolutions: ResolutionSender,
     namespace: Vec<u8>,
 ) -> Result<Submitter<CounterTaskData, CounterHandler>> {
