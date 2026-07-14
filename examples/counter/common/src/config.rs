@@ -202,8 +202,8 @@ pub fn rebroadcast_interval() -> std::time::Duration {
 /// p2p send-side limiter SILENTLY DROPS messages to rate-limited peers, so an
 /// undersized quota starves fresh acks and stalls certification. The default is
 /// computed from those two knobs with 2x headroom; override with
-/// `P2P_ACK_MESSAGES_PER_SECOND` (the legacy `P2P_MESSAGES_PER_SECOND` knob only
-/// governs the task-directive channel).
+/// `P2P_ACK_MESSAGES_PER_SECOND` — distinct from `P2P_MESSAGES_PER_SECOND`, which
+/// governs only the task-directive channel.
 pub fn ack_messages_per_second() -> std::num::NonZeroU32 {
     if let Some(v) = env::var("P2P_ACK_MESSAGES_PER_SECOND")
         .ok()

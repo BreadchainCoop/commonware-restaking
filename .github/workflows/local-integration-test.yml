@@ -62,15 +62,10 @@ jobs:
 
       - name: Update config for host-based router
         run: |
-          # The operator sockets registered on-chain (node-N:300x) are dialed by
-          # BOTH the containerized nodes (via Docker DNS) and the host-based
-          # router. Rewriting them to localhost would break node<->node dialing
-          # (localhost inside a container is the container itself), collapsing
-          # the mesh into a star through the router: nodes would then never see
-          # each other's acks, their engine tips would never advance, and
-          # aggregation would wedge after exactly AGG_WINDOW heights. Instead,
-          # keep the Docker DNS names and teach the host to resolve them to the
-          # published container ports.
+          # The operator sockets registered on-chain (node-N:300x) must resolve
+          # for both the containerized nodes (via Docker DNS) and the
+          # host-based router, so map the Docker DNS names to their published
+          # container ports on the host instead of rewriting the registration.
           echo "127.0.0.1 node-1 node-2 node-3" | sudo tee -a /etc/hosts
 
           # Create config.json for consistency

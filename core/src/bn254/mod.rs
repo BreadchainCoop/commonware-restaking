@@ -445,9 +445,9 @@ impl Read for Signature {
         // validates curve membership and subgroup.
         let sig = G1Affine::deserialize_compressed(raw.as_slice())
             .map_err(|_| Error::Invalid("bn254::Signature", "invalid G1 point"))?;
-        // Reject the identity point, for parity with `PublicKey`/`G1PublicKey` reads
-        // and the pre-migration `TryFrom`. A zero signature pairs to the GT identity
-        // and would act as a "free pass" under aggregate verification.
+        // Reject the identity point, for parity with `PublicKey`/`G1PublicKey` reads.
+        // A zero signature pairs to the GT identity and would act as a "free pass"
+        // under aggregate verification.
         if sig.is_zero() {
             return Err(Error::Invalid("bn254::Signature", "identity G1 point"));
         }
