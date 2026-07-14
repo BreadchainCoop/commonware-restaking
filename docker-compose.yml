@@ -51,10 +51,12 @@ services:
       - HTTP_RPC=http://ethereum:8545
       - WS_RPC=ws://ethereum:8545
       - AVS_DEPLOYMENT_PATH=/app/.nodes/avs_deploy.json
+      - STORAGE_DIR=/app/data
     volumes:
       - ./config/.nodes/operator_keys/testacc1.private.bls.key.json:/app/key.json:ro
       - ./config/.nodes:/app/.nodes:ro
       - ./config/public_orchestrator.json:/app/public_orchestrator.json:ro
+      - node-1-data:/app/data
     command:
       [
         "--key-file",
@@ -65,7 +67,7 @@ services:
         "/app/public_orchestrator.json",
       ]
     ports:
-      - "4001:3001"
+      - "3001:3001"
     restart: unless-stopped
 
   node-2:
@@ -85,10 +87,12 @@ services:
       - HTTP_RPC=http://ethereum:8545
       - WS_RPC=ws://ethereum:8545
       - AVS_DEPLOYMENT_PATH=/app/.nodes/avs_deploy.json
+      - STORAGE_DIR=/app/data
     volumes:
       - ./config/.nodes/operator_keys/testacc2.private.bls.key.json:/app/key.json:ro
       - ./config/.nodes:/app/.nodes:ro
       - ./config/public_orchestrator.json:/app/public_orchestrator.json:ro
+      - node-2-data:/app/data
     command:
       [
         "--key-file",
@@ -99,7 +103,7 @@ services:
         "/app/public_orchestrator.json",
       ]
     ports:
-      - "4002:3002"
+      - "3002:3002"
     restart: unless-stopped
 
   node-3:
@@ -119,10 +123,12 @@ services:
       - HTTP_RPC=http://ethereum:8545
       - WS_RPC=ws://ethereum:8545
       - AVS_DEPLOYMENT_PATH=/app/.nodes/avs_deploy.json
+      - STORAGE_DIR=/app/data
     volumes:
       - ./config/.nodes/operator_keys/testacc3.private.bls.key.json:/app/key.json:ro
       - ./config/.nodes:/app/.nodes:ro
       - ./config/public_orchestrator.json:/app/public_orchestrator.json:ro
+      - node-3-data:/app/data
     command:
       [
         "--key-file",
@@ -133,7 +139,7 @@ services:
         "/app/public_orchestrator.json",
       ]
     ports:
-      - "4003:3003"
+      - "3003:3003"
     restart: unless-stopped
 
   router:
@@ -158,11 +164,19 @@ services:
       - HTTP_RPC=http://ethereum:8545
       - WS_RPC=ws://ethereum:8545
       - AVS_DEPLOYMENT_PATH=/app/.nodes/avs_deploy.json
+      - STORAGE_DIR=/app/data
     volumes:
       - ./config/.nodes:/app/.nodes:ro
       - ./config/router_orchestrator.json:/app/router_orchestrator.json:ro
+      - router-data:/app/data
     command: ["--key-file", "/app/router_orchestrator.json", "--port", "3000"]
     ports:
       - "4000:3000"
       - "8080:8080"
     restart: unless-stopped
+
+volumes:
+  node-1-data:
+  node-2-data:
+  node-3-data:
+  router-data:

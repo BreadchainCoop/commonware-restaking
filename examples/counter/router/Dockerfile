@@ -62,6 +62,10 @@ COPY --from=builder /app/target/release/counter-router /usr/local/bin/counter-ro
 # Copy configuration files
 COPY config /app/config
 
+# Journal volume mount point: created in the image so a fresh named volume
+# inherits appuser ownership instead of defaulting to root.
+RUN mkdir -p /app/data
+
 # Set ownership
 RUN chown -R appuser:appuser /app
 

@@ -1,58 +1,64 @@
 use bytes::{Buf, BufMut};
+use commonware_codec::varint::UInt;
 use commonware_codec::{EncodeSize, Read, ReadExt, Write};
 
-#[derive(Clone, Debug, PartialEq, Default)]
+/// Task payload broadcast by the router: the `Counter.number()` round this task
+/// certifies.
+#[derive(Debug, Clone, PartialEq)]
 pub struct CounterTaskData {
-    pub var1: String,
-    pub var2: String,
-    pub var3: String,
+    pub round: u64,
 }
 
 impl Write for CounterTaskData {
     fn write(&self, buf: &mut impl BufMut) {
-        (self.var1.len() as u32).write(buf);
-        buf.put_slice(self.var1.as_bytes());
-        (self.var2.len() as u32).write(buf);
-        buf.put_slice(self.var2.as_bytes());
-        (self.var3.len() as u32).write(buf);
-        buf.put_slice(self.var3.as_bytes());
+        UInt(self.round).write(buf);
     }
 }
 
 impl Read for CounterTaskData {
     type Cfg = ();
+
     fn read_cfg(buf: &mut impl Buf, _: &()) -> Result<Self, commonware_codec::Error> {
-        let v1 = {
-            let len = u32::read(buf)? as usize;
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            String::from_utf8(bytes)
-                .map_err(|_| commonware_codec::Error::Invalid("var1", "utf8"))?
-        };
-        let v2 = {
-            let len = u32::read(buf)? as usize;
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            String::from_utf8(bytes)
-                .map_err(|_| commonware_codec::Error::Invalid("var2", "utf8"))?
-        };
-        let v3 = {
-            let len = u32::read(buf)? as usize;
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            String::from_utf8(bytes)
-                .map_err(|_| commonware_codec::Error::Invalid("var3", "utf8"))?
-        };
-        Ok(Self {
-            var1: v1,
-            var2: v2,
-            var3: v3,
-        })
+        let round: u64 = UInt::read(buf)?.into();
+        Ok(Self { round })
     }
 }
 
 impl EncodeSize for CounterTaskData {
     fn encode_size(&self) -> usize {
-        std::mem::size_of::<u32>() * 3 + self.var1.len() + self.var2.len() + self.var3.len()
+        UInt(self.round).encode_size()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use commonware_codec::{DecodeExt, Encode};
+
+    #[test]
+    fn roundtrip() {
+        let original = CounterTaskData { round: 42 };
+        let encoded = original.encode();
+        assert_eq!(encoded.len(), original.encode_size());
+        let decoded = CounterTaskData::decode(encoded).expect("decode failed");
+        assert_eq!(decoded, original);
+    }
+
+    #[test]
+    fn roundtrip_boundary_values() {
+        for round in [0u64, 1, u32::MAX as u64, u64::MAX] {
+            let original = CounterTaskData { round };
+            let encoded = original.encode();
+            assert_eq!(encoded.len(), original.encode_size());
+            let decoded = CounterTaskData::decode(encoded).expect("decode failed");
+            assert_eq!(decoded, original);
+        }
+    }
+
+    #[test]
+    fn truncated_encoding_rejected() {
+        let encoded = CounterTaskData { round: 300 }.encode();
+        let truncated = encoded.slice(0..encoded.len() - 1);
+        assert!(CounterTaskData::decode(truncated).is_err());
     }
 }

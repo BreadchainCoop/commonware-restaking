@@ -4,95 +4,79 @@
 
 ## Overview
 
-The router coordinates multiple operators to sign messages, aggregates their signatures when a threshold is reached, and executes the result onchain.
+The router runs a verifier-only `commonware-consensus` aggregation engine alongside
+a task sequencer and an on-chain submitter: it assigns aggregation heights to
+application tasks, certifies operator acks via the engine, and submits certified
+heights on-chain. See the [top-level README](../README.md) for the full task-flow
+and quorum model.
 
 ## Architecture
 
-The system consists of:
+- [`Sequencer`](src/sequencer.rs): assigns each application task the next
+  aggregation height, rebroadcasts `TaskDirective::Announce` until a certificate
+  lands, and falls back to `TaskDirective::Skip` after `ROUND_TIMEOUT`.
+- [`RouterAutomaton`](src/automaton.rs): resolves the verifier-only engine's
+  `propose` calls against the sequencer's assignments.
+- [`CertReporter`](src/reporter.rs): the engine's activity sink; forwards
+  certified heights to the submitter.
+- [`Submitter`](src/submitter.rs): resolves a certified height into an EigenLayer
+  `NonSignerStakesAndSignature` submission and calls the application's
+  [`BlsSignatureVerificationHandler`](src/executor.rs).
+- `TaskSource` (application-implemented — see
+  [`examples/counter/router/src/source.rs`](../examples/counter/router/src/source.rs)):
+  supplies the tasks the sequencer assigns heights to. The counter example polls
+  the deployed contract every `POLLING_INTERVAL_MS`.
 
-- **Orchestrator**: Coordinates the aggregation process
-- **Creator**: Generates payloads and manages rounds  
-- **Executor**: Handles onchain execution
-- **Validator**: Validates messages and signatures
-- **Contributors**: Operator nodes that sign messages (implemented in [`commonware-avs-node`](https://github.com/BreadchainCoop/commonware-avs-node) submodule)
-
-### Usecases
-
-The router supports multiple usecases for different onchain operations:
-
-- **[Counter Usecase](src/usecases/counter/README.md)**: Simple counter increment with BLS signature aggregation
-- More usecases can be added by implementing the `Creator` and `Executor` traits
-
-See individual usecase READMEs for detailed architecture diagrams and implementation details.
+Applications add a usecase by implementing `TaskSource` and
+`BlsSignatureVerificationHandler` against their own contract bindings — see
+[`examples/counter`](../examples/counter) for a full implementation.
 
 ## Configuration
 
 ### Environment Variables
 
-Required environment variables:
+Required:
 - `HTTP_RPC`: HTTP RPC endpoint
 - `WS_RPC`: WebSocket RPC endpoint
-- `AVS_DEPLOYMENT_PATH`: Path to deployment JSON file
-- `CONTRIBUTOR_X_KEYFILE`: BLS key files for contributors
-- `PRIVATE_KEY`: Private key for transactions. **NOTE:** Address must be funded on Sepolia testnet
+- `AVS_DEPLOYMENT_PATH`: Path to the deployment JSON file
+- `PRIVATE_KEY`: Private key for submitting transactions. **NOTE:** Address must
+  be funded
 
-Optional environment variables:
-- `AGGREGATION_TIMEOUT`: Aggregation timeout in seconds — max wait per round before declaring it stalled, supports fractional values (default: 30)
-  - Examples: `30` (30 seconds), `1` (1 second), `0.1` (100ms), `0.5` (500ms)
-- `THRESHOLD`: Minimum signatures required for aggregation
-- `INGRESS`: Enable HTTP ingress mode (true/false)
-- `INGRESS_ADDRESS`: Address for ingress server (default: 0.0.0.0:8080)
-- `INGRESS_TIMEOUT_MS`: Timeout for waiting for ingress tasks in milliseconds (default: 30000)
+Optional:
+- `ROUND_TIMEOUT`: Seconds the router waits for a certificate on an assigned
+  height before broadcasting `Skip` (default: 30, fractional allowed)
+- `REBROADCAST_INTERVAL`: Seconds between `TaskDirective` rebroadcasts; also the
+  engine's own ack rebroadcast cadence (default: 5)
+- `AGG_WINDOW`: Heights the aggregation engine works on concurrently above its
+  tip (default: 8)
+- `AGG_ACTIVITY_TIMEOUT`: Heights the engine keeps tracking below its tip
+  (default: 256)
+- `P2P_MESSAGES_PER_SECOND` / `P2P_ACK_MESSAGES_PER_SECOND`: Per-peer rate quotas
+  for the task-directive and ack channels respectively (the latter defaults to a
+  value computed from `AGG_ACTIVITY_TIMEOUT` / `REBROADCAST_INTERVAL`)
+- `P2P_MESSAGE_BACKLOG`: Per-peer message backlog size
+- `STORAGE_DIR`: Directory for the engine's journal (must persist across
+  restarts)
+- `POLLING_INTERVAL_MS`: How often the counter `TaskSource` polls for a new round
+  (default: 2000)
 
-Contract addresses are automatically loaded from the deployment JSON file.
+Contract addresses are loaded from the deployment JSON file.
+
+### Running
+
+```bash
+cargo run -p counter-router --release -- --key-file router_orchestrator.json --port 3000
+```
+
+`--key-file` is the router's own BLS private key (`{"privateKey": "..."}`).
+`--bootstrappers` optionally takes a comma-separated list of additional peer
+addresses. Nodes locate the router via a separate file carrying its public
+identity and socket address (`{g2_x1, g2_x2, g2_y1, g2_y2, address, port}`,
+conventionally named `public_orchestrator.json`), passed to each node's
+`--orchestrator` flag.
 
 ### Docker
 
-Pull the latest image:
-```bash
-docker pull ghcr.io/breadchaincoop/commonware-avs-router:latest
-```
-
-Run with Docker Compose:
-```yaml
-version: '3.8'
-services:
-  orchestrator:
-    image: ghcr.io/breadchaincoop/commonware-avs-router:latest
-    volumes:
-      - ./config:/app/config
-      - ./keys:/app/keys
-    environment:
-      - HTTP_RPC=${HTTP_RPC}
-      - WS_RPC=${WS_RPC}
-      - AVS_DEPLOYMENT_PATH=/app/config/avs_deploy.json
-      - PRIVATE_KEY=${PRIVATE_KEY}
-      - AGGREGATION_TIMEOUT=${AGGREGATION_TIMEOUT:-30}
-      - CONTRIBUTOR_1_KEYFILE=/app/keys/contributor1.bls.key.json
-      - CONTRIBUTOR_2_KEYFILE=/app/keys/contributor2.bls.key.json
-      - CONTRIBUTOR_3_KEYFILE=/app/keys/contributor3.bls.key.json
-    ports:
-      - "3000:3000"
-    command: ["--key-file", "/app/config/orchestrator.json", "--port", "3000"]
-```
-
-## Ingress Mode
-
-Enable HTTP endpoints for external task requests:
-
-1. **Enable ingress in .env:**
-```bash
-INGRESS=true
-```
-
-2. **Restart the router:**
-```bash
-docker compose restart router
-```
-
-3. **Trigger tasks via HTTP:**
-```bash
-curl -X POST http://localhost:8080/trigger \
-  -H "Content-Type: application/json" \
-  -d '{"body": {"metadata": {"request_id": "1", "action": "increment"}}}'
-```
+See the `router` service in [`docker-compose.yml`](../docker-compose.yml) for a
+complete example, including the volumes and command needed to run alongside
+`node-1`/`node-2`/`node-3`.

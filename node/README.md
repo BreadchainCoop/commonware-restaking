@@ -4,17 +4,33 @@
 
 ## Overview
 
-A node enables operators to participate in BLS signature aggregation for AVS protocols, communicating with an orchestrator and other contributors in the network.
+A node runs an operator's participant actors for the `commonware-consensus`
+aggregation engine: it validates announced tasks, signs their expected digests,
+and gossips acks with its peers. See the [top-level README](../README.md) for the
+full task-flow and quorum model.
 
-## Orchestrator Configuration
+## Architecture
 
-The orchestrator configuration file (`orchestrator.json`) specifies the connection details for the orchestrator node. The file includes:
+- [`NodeAutomaton`](src/automaton.rs): answers the engine's `propose` calls by
+  validating the router's announced task (via the application's `ValidatorTrait`,
+  e.g. [`CounterValidator`](../examples/counter/common/src/validator.rs)) and
+  resolving the expected digest, or the skip digest once a directive is
+  abandoned.
+- [`TaskBook`](src/task_book.rs): tracks the router's `TaskDirective` broadcasts
+  on p2p channel 1 and resolves each height the automaton is asked about.
+- [`NodeReporter`](src/reporter.rs): the engine's activity sink; deduplicates
+  certificates across journal replays, tracks tip height for metrics, and prunes
+  the `TaskBook`. Applications needing post-certification work (e.g. a
+  non-BN254 scheme) opt in to a certificate tap via
+  `NodeReporter::with_certificate_tap`.
 
-- `g2_x1`, `g2_x2`, `g2_y1`, `g2_y2`: Public key coordinates for the orchestrator
-- `address`: IP address or hostname of the orchestrator (optional, defaults to "localhost" for backwards compatibility)
-- `port`: Port number for the orchestrator
+## Configuration
 
-Example `orchestrator.json`:
+### Router Connection File
+
+A node locates the router via a JSON file passed to `--orchestrator` carrying
+the router's public identity and socket address:
+
 ```json
 {
     "g2_x1": "20265730220917057623326116620721648047640065506233168445998945605458084341755",
@@ -26,96 +42,26 @@ Example `orchestrator.json`:
 }
 ```
 
-For backwards compatibility, if the `address` field is omitted, it will default to "localhost".
+`address` defaults to `"localhost"` if omitted.
 
-## Running Contributors
+### Environment Variables
+
+- `STORAGE_DIR`: Directory for the engine's journal (must persist across
+  restarts)
+- `AGG_WINDOW`: Heights the aggregation engine works on concurrently above its
+  tip (default: 8)
+- `AGG_ACTIVITY_TIMEOUT`: Heights the engine keeps tracking below its tip
+  (default: 256)
+- `REBROADCAST_INTERVAL`: The engine's ack rebroadcast cadence, in seconds
+  (default: 5)
+- `P2P_MESSAGES_PER_SECOND` / `P2P_ACK_MESSAGES_PER_SECOND`: Per-peer rate quotas
+  for the task-directive and ack channels respectively
+- `P2P_MESSAGE_BACKLOG`: Per-peer message backlog size
+
+### Running
+
 ```bash
-source .env
-cargo run --release -- --key-file $CONTRIBUTOR_1_KEYFILE --port 3001 --orchestrator orchestrator.json 
-
-source .env
-cargo run --release -- --key-file $CONTRIBUTOR_2_KEYFILE --port 3002 --orchestrator orchestrator.json 
-
-source .env
-cargo run --release -- --key-file $CONTRIBUTOR_3_KEYFILE --port 3003 --orchestrator orchestrator.json 
-```
-If you wish to run an aggregating contributor, add the option `--aggregation` argument, for example, if you want the first contributor to be aggregating,
-```bash
-source .env
-cargo run --release -- --key-file $CONTRIBUTOR_1_KEYFILE --port 3001 --orchestrator orchestrator.json --aggregation
+cargo run --release -- --key-file operator1.bls.key.json --port 3001 --orchestrator public_orchestrator.json
 ```
 
-You may also use the short command `-a` in place of `--aggregation`.
-
----
-
-## Core Functionalities
-
-- **Signature Aggregation**: Aggregates signatures from multiple contributors, supporting quorum signing (e.g., n-of-m).
-- **Contributor Node**: Each node signs payloads and broadcasts signatures to the orchestrator and peers.
-- **Coordinate with Orchestrator**: Listen to aggregation rounds, initiate signing, and broadcast signatures.
-- **Validator**: Verifies message rounds and payloads, ensuring only valid payloads are signed.
-- **P2P Network**: Authenticated, message-based communication between contributors and orchestrator.
-- **Wire/Codac**: Defines message formats for aggregation rounds and signatures.
-- **Network lookup**: Fetches operator states from eigenlayer avs contracts for dynamic network peer configuration.
-
-## Architecture Diagram
-
-```mermaid
-classDiagram
-    class Contributor {
-        +new()
-        +run()
-        -orchestrator: PublicKey
-        -signer: Bn254
-    }
-    class Orchestrator {
-        <<external>>
-    }
-    class Validator {
-        +new()
-        +validate_and_return_expected_hash()
-        +verify_message_round()
-    }
-    class Network {
-        +register()
-        +start()
-    }
-    class Aggregation {
-        +round: u64
-        +payload: Option<Payload>
-    }
-    class Payload {
-        <<enum>>
-        Start
-        Signature
-    }
-    Contributor --> Validator
-    Contributor --> Network
-    Contributor --> Aggregation
-    Aggregation --> Payload
-    Orchestrator --> Network
-    Validator --> Aggregation
-```
-
----
-
-## Aggregation Workflow
-
-```mermaid
-sequenceDiagram
-autonumber
-    participant Orchestrator
-    participant Contributor
-    participant Validator
-    participant Network
-
-    Orchestrator->>Contributor: Send Start(round) message
-    Contributor->>Validator: Validate round and payload
-    Validator-->>Contributor: Return expected payload hash
-    Contributor->>Contributor: Sign payload
-    Contributor->>Orchestrator: Send Signature(round, signature)
-    Contributor->>Network: Broadcast Signature to peers
-    Orchestrator->>Network: Collect signatures
-    Orchestrator->>Validator: Verify aggregated signatures
-```
+Run one process per operator, each with its own `--key-file` and `--port`.

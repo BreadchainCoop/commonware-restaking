@@ -1,37 +1,21 @@
 use anyhow::Result;
 use commonware_cryptography::sha256::Digest;
 
+/// Application hook for independently validating an announced task.
+///
+/// Every node recomputes the digest for a task from its own view of the world
+/// (rather than trusting anything the router announced) and signs only what it
+/// computed itself. A router uses the same implementation to know which digest a
+/// certificate for the task must carry.
+///
+/// Implementations should return an error when the task cannot be validated (yet) —
+/// callers treat errors as retryable until their own budget expires, after which the
+/// height is skipped rather than signed.
 #[async_trait::async_trait]
-pub trait ValidatorTrait: Send + Sync {
-    /// Validates a message and returns the expected hash.
-    async fn validate_and_return_expected_hash(&self, msg: &[u8]) -> Result<Digest>;
-
-    /// Extracts and hashes the payload from a message.
-    async fn get_payload_from_message(&self, msg: &[u8]) -> Result<Digest>;
-}
-
-/// Generic validator wrapper that delegates to a ValidatorTrait implementation.
-pub struct Validator<T: ValidatorTrait> {
-    pub validator_impl: T,
-}
-
-impl<T: ValidatorTrait> Validator<T> {
-    #[allow(dead_code)]
-    pub fn new(validator_impl: T) -> Self {
-        Self { validator_impl }
-    }
-
-    #[allow(dead_code)]
-    pub async fn validate_and_return_expected_hash(&self, msg: &[u8]) -> Result<Digest> {
-        self.validator_impl
-            .validate_and_return_expected_hash(msg)
-            .await
-    }
-
-    #[allow(dead_code)]
-    pub async fn get_payload_from_message(&self, msg: &[u8]) -> Result<Digest> {
-        self.validator_impl.get_payload_from_message(msg).await
-    }
+pub trait ValidatorTrait<T>: Send + Sync {
+    /// Validates `task` and returns the digest this participant is willing to sign
+    /// for it.
+    async fn expected_digest(&self, task: &T) -> Result<Digest>;
 }
 
 #[cfg(any(test, feature = "test-utils"))]

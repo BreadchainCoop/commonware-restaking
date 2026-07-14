@@ -1,3 +1,7 @@
+pub mod scheme;
+
+pub use scheme::{Bn254Certificate, Bn254Scheme};
+
 use ark_bn254::{Fq, Fq2, Fr as Scalar, G1Affine, G1Projective, G2Affine, G2Projective};
 use ark_ec::{AffineRepr, CurveGroup, PrimeGroup, pairing::Pairing};
 use ark_ff::AdditiveGroup;
@@ -39,6 +43,15 @@ pub struct Bn254 {
 impl Random for Bn254 {
     fn random(mut rng: impl CryptoRngCore) -> Self {
         Bn254::from_scalar(Scalar::rand(&mut rng))
+    }
+}
+
+impl Debug for Bn254 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Never print the private scalar.
+        f.debug_struct("Bn254")
+            .field("public", &PublicKey::from(self.public))
+            .finish_non_exhaustive()
     }
 }
 
@@ -131,9 +144,12 @@ impl Read for PrivateKey {
     type Cfg = ();
 
     fn read_cfg(buf: &mut impl Buf, _cfg: &()) -> Result<Self, Error> {
-        let mut raw = <[u8; PRIVATE_KEY_LENGTH]>::read_cfg(buf, &())?;
-        let dst: &[u8] = &mut raw;
-        let key = Scalar::deserialize_compressed(dst).expect("Wrong Private Key");
+        let raw = <[u8; PRIVATE_KEY_LENGTH]>::read_cfg(buf, &())?;
+        let key = Scalar::deserialize_compressed(raw.as_slice())
+            .map_err(|_| Error::Invalid("bn254::PrivateKey", "invalid scalar"))?;
+        if key == Scalar::ZERO {
+            return Err(Error::Invalid("bn254::PrivateKey", "zero scalar"));
+        }
         Ok(PrivateKey { raw, key })
     }
 }
@@ -172,7 +188,8 @@ impl Deref for PrivateKey {
 impl From<Scalar> for PrivateKey {
     fn from(key: Scalar) -> Self {
         let mut raw = [0u8; PRIVATE_KEY_LENGTH];
-        key.serialize_compressed(&mut raw[..]).unwrap();
+        key.serialize_compressed(&mut raw[..])
+            .expect("scalar compressed encoding is exactly 32 bytes");
         Self { raw, key }
     }
 }
@@ -180,10 +197,13 @@ impl From<Scalar> for PrivateKey {
 impl TryFrom<&[u8]> for PrivateKey {
     type Error = Error;
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        let raw: [u8; PRIVATE_KEY_LENGTH] = value.try_into().expect("Invalid Private Key Length");
-        let key = Scalar::deserialize_compressed(value).expect("Invalid Private Key");
+        let raw: [u8; PRIVATE_KEY_LENGTH] = value
+            .try_into()
+            .map_err(|_| Error::InvalidLength(value.len()))?;
+        let key = Scalar::deserialize_compressed(value)
+            .map_err(|_| Error::Invalid("bn254::PrivateKey", "invalid scalar"))?;
         if key == Scalar::ZERO {
-            return Err(Error::InvalidUsize);
+            return Err(Error::Invalid("bn254::PrivateKey", "zero scalar"));
         }
         Ok(Self { raw, key })
     }
@@ -239,9 +259,15 @@ impl Read for PublicKey {
     type Cfg = ();
 
     fn read_cfg(buf: &mut impl Buf, _cfg: &()) -> Result<Self, Error> {
-        let mut raw = <[u8; PUBLIC_KEY_LENGTH]>::read_cfg(buf, &())?;
-        let dst: &[u8] = &mut raw;
-        let key = G2Affine::deserialize_compressed(dst).expect("Wrong Public Key");
+        let raw = <[u8; PUBLIC_KEY_LENGTH]>::read_cfg(buf, &())?;
+        // `deserialize_compressed` validates curve membership and subgroup; reject
+        // the identity separately (it is never a valid operator key and would act
+        // as a "free pass" under aggregate verification).
+        let key = G2Affine::deserialize_compressed(raw.as_slice())
+            .map_err(|_| Error::Invalid("bn254::PublicKey", "invalid G2 point"))?;
+        if key.is_zero() {
+            return Err(Error::Invalid("bn254::PublicKey", "identity G2 point"));
+        }
         Ok(PublicKey { raw, key })
     }
 }
@@ -288,13 +314,10 @@ impl From<G2Affine> for PublicKey {
 impl TryFrom<&[u8]> for PublicKey {
     type Error = Error;
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        let raw: [u8; PUBLIC_KEY_LENGTH] =
-            TryInto::<[u8; PUBLIC_KEY_LENGTH]>::try_into(value).expect("Invalid Public Key Length");
-        let key = G2Affine::deserialize_compressed(value).expect("Invalid Public Key");
-        if !key.is_in_correct_subgroup_assuming_on_curve() || !key.is_on_curve() || key.is_zero() {
-            return Err(Error::InvalidUsize);
+        if value.len() != PUBLIC_KEY_LENGTH {
+            return Err(Error::InvalidLength(value.len()));
         }
-        Ok(Self { raw, key })
+        Self::read_cfg(&mut &*value, &())
     }
 }
 
@@ -356,6 +379,16 @@ impl Verifier for PublicKey {
 impl CPublicKey for PublicKey {}
 
 impl PublicKey {
+    /// Verifies a signature over a raw 32-byte digest — the pairing check
+    /// `e(map_to_curve(digest), pk_G2) == e(sig, G2::generator())`, mirroring
+    /// [`Bn254::sign_digest`].
+    pub fn verify_digest(&self, digest: &[u8; DIGEST_LENGTH], signature: &Signature) -> bool {
+        let msg_on_g1 = map_to_curve(digest);
+        let lhs = ark_bn254::Bn254::pairing(msg_on_g1, self.key);
+        let rhs = ark_bn254::Bn254::pairing(signature.sig, G2Affine::generator());
+        lhs == rhs
+    }
+
     pub fn create_from_g2_coordinates(x1: &str, x2: &str, y1: &str, y2: &str) -> Option<Self> {
         // Convert string coordinates to Fq elements
         let x1_fq = Fq::from_str(x1).ok()?;
@@ -381,6 +414,13 @@ pub struct Signature {
     sig: G1Affine,
 }
 
+impl Signature {
+    /// Returns the raw G1Affine point
+    pub fn get_point(&self) -> G1Affine {
+        self.sig
+    }
+}
+
 impl Span for Signature {}
 
 impl Array for Signature {}
@@ -399,9 +439,18 @@ impl Read for Signature {
     type Cfg = ();
 
     fn read_cfg(buf: &mut impl Buf, _cfg: &()) -> Result<Self, Error> {
-        let mut raw = <[u8; SIGNATURE_LENGTH]>::read_cfg(buf, &())?;
-        let dst: &[u8] = &mut raw;
-        let sig = G1Affine::deserialize_compressed(dst).expect("Wrong Signature");
+        let raw = <[u8; SIGNATURE_LENGTH]>::read_cfg(buf, &())?;
+        // This runs on untrusted network bytes (via `Lazy<Signature>` decode and
+        // certificate decode) — it must error, never panic. `deserialize_compressed`
+        // validates curve membership and subgroup.
+        let sig = G1Affine::deserialize_compressed(raw.as_slice())
+            .map_err(|_| Error::Invalid("bn254::Signature", "invalid G1 point"))?;
+        // Reject the identity point, for parity with `PublicKey`/`G1PublicKey` reads.
+        // A zero signature pairs to the GT identity and would act as a "free pass"
+        // under aggregate verification.
+        if sig.is_zero() {
+            return Err(Error::Invalid("bn254::Signature", "identity G1 point"));
+        }
         Ok(Signature { raw, sig })
     }
 }
@@ -448,13 +497,10 @@ impl From<G1Affine> for Signature {
 impl TryFrom<&[u8]> for Signature {
     type Error = Error;
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        let raw: [u8; SIGNATURE_LENGTH] =
-            TryInto::<[u8; SIGNATURE_LENGTH]>::try_into(value).expect("Invalid Signature Length");
-        let sig = G1Affine::deserialize_compressed(value).expect("Invalid Signature");
-        if !sig.is_in_correct_subgroup_assuming_on_curve() || !sig.is_on_curve() || sig.is_zero() {
-            return Err(Error::InvalidBool);
+        if value.len() != SIGNATURE_LENGTH {
+            return Err(Error::InvalidLength(value.len()));
         }
-        Ok(Self { raw, sig })
+        Self::read_cfg(&mut &*value, &())
     }
 }
 
@@ -511,9 +557,12 @@ impl Read for G1PublicKey {
     type Cfg = ();
 
     fn read_cfg(buf: &mut impl Buf, _cfg: &()) -> Result<Self, Error> {
-        let mut raw = <[u8; G1_LENGTH]>::read_cfg(buf, &())?;
-        let dst: &[u8] = &mut raw;
-        let key = G1Affine::deserialize_compressed(dst).expect("Wrong G1 Public Key");
+        let raw = <[u8; G1_LENGTH]>::read_cfg(buf, &())?;
+        let key = G1Affine::deserialize_compressed(raw.as_slice())
+            .map_err(|_| Error::Invalid("bn254::G1PublicKey", "invalid G1 point"))?;
+        if key.is_zero() {
+            return Err(Error::Invalid("bn254::G1PublicKey", "identity G1 point"));
+        }
         Ok(G1PublicKey { raw, key })
     }
 }
@@ -585,13 +634,10 @@ impl G1PublicKey {
 impl TryFrom<&[u8]> for G1PublicKey {
     type Error = Error;
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        let raw: [u8; G1_LENGTH] =
-            TryInto::<[u8; G1_LENGTH]>::try_into(value).expect("Invalid G1 Public Key Length");
-        let key = G1Affine::deserialize_compressed(value).expect("Invalid G1 Public Key");
-        if !key.is_in_correct_subgroup_assuming_on_curve() || !key.is_on_curve() || key.is_zero() {
-            return Err(Error::EndOfBuffer);
+        if value.len() != G1_LENGTH {
+            return Err(Error::InvalidLength(value.len()));
         }
-        Ok(Self { raw, key })
+        Self::read_cfg(&mut &*value, &())
     }
 }
 
@@ -694,9 +740,23 @@ impl Bn254 {
         }
     }
 
+    pub fn private_key(&self) -> PrivateKey {
+        PrivateKey::from(self.private)
+    }
+
     pub fn public_g1(&self) -> G1PublicKey {
         let pk = G1Projective::generator() * self.private;
         G1PublicKey::from(pk.into_affine())
+    }
+
+    /// Signs a raw 32-byte digest: `map_to_curve(digest) * sk` — no namespace, no
+    /// extra hashing. This is the EigenLayer on-chain signing path: the deployed
+    /// `BLSSignatureChecker` recomputes exactly `map_to_curve(digest)` when
+    /// verifying, so nothing else may enter the preimage.
+    pub fn sign_digest(&self, digest: &[u8; DIGEST_LENGTH]) -> Signature {
+        let msg_on_g1 = map_to_curve(digest);
+        let sig = msg_on_g1 * self.private;
+        Signature::from(sig.into_affine())
     }
 }
 
