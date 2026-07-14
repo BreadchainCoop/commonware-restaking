@@ -1,5 +1,4 @@
 pub mod automaton;
-pub mod ecdsa_submitter;
 pub mod executor;
 pub mod reporter;
 pub mod sequencer;

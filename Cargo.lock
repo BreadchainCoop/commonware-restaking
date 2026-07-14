@@ -2008,8 +2008,6 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
- "alloy-signer",
- "alloy-signer-local",
  "anyhow",
  "ark-bn254",
  "ark-ec",

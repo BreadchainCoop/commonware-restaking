@@ -9,7 +9,6 @@ test-utils = []
 [dependencies]
 alloy = { workspace = true }
 alloy-primitives = { workspace = true }
-alloy-signer = { workspace = true }
 anyhow = { workspace = true }
 ark-bn254 = { workspace = true }
 ark-ec = { workspace = true }
@@ -31,7 +30,6 @@ rand = { workspace = true }
 rand_core = { workspace = true }
 
 [dev-dependencies]
-alloy-signer-local = { workspace = true }
 criterion = { version = "0.5", features = ["html_reports"] }
 
 [[bench]]
