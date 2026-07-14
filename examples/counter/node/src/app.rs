@@ -51,7 +51,7 @@ struct KeyConfig {
 }
 #[derive(Debug, Serialize, Deserialize)]
 #[allow(non_snake_case)]
-struct OrchestratorConfig {
+struct RouterConfig {
     g2_x1: String,
     g2_x2: String,
     g2_y1: String,
@@ -77,10 +77,9 @@ fn load_key_from_file(path: &str) -> String {
     config.privateKey
 }
 
-fn load_orchestrator_config(path: &str) -> OrchestratorConfig {
+fn load_router_config(path: &str) -> RouterConfig {
     let contents = fs::read_to_string(path).expect("Could not read key file");
-    let config: OrchestratorConfig =
-        serde_json::from_str(&contents).expect("Could not parse key file");
+    let config: RouterConfig = serde_json::from_str(&contents).expect("Could not parse key file");
     config
 }
 
@@ -109,11 +108,11 @@ fn configure_identity(matches: &clap::ArgMatches) -> (Bn254, u16) {
     (signer, port)
 }
 
-fn configure_orchestrator(matches: &clap::ArgMatches) -> OrchestratorConfig {
-    let orchestrator_file = matches
-        .get_one::<String>("orchestrator")
-        .expect("No orchestrator addr");
-    load_orchestrator_config(orchestrator_file)
+fn configure_router(matches: &clap::ArgMatches) -> RouterConfig {
+    let router_file = matches
+        .get_one::<String>("router")
+        .expect("No router connection file provided");
+    load_router_config(router_file)
 }
 
 async fn get_operator_states() -> Result<Vec<QuorumInfo>, Box<dyn std::error::Error>> {
@@ -153,22 +152,22 @@ pub fn main() {
                 .help("Port to run the service on"),
         )
         .arg(
-            Arg::new("orchestrator")
-                .long("orchestrator")
+            Arg::new("router")
+                .long("router")
                 .required(false)
-                .help("Path to orchestrator key file"),
+                .help("Path to the router's public connection file"),
         )
         .get_matches();
 
     // Configure my identity
     let (signer, port) = configure_identity(&matches);
-    let orchestrator_config = configure_orchestrator(&matches);
+    let router_config = configure_router(&matches);
 
     // Start runtime
     runner.start(|context: tokio::Context| async move {
         let mut recipients: Vec<(PublicKey, Address)> = Vec::new();
         // Scoped to avoid configuring two loggers
-        let orchestrator_pub_key;
+        let router_pub_key;
         let quorum_infos;
         {
             eigen_logging::init_logger(LogLevel::Debug);
@@ -199,35 +198,35 @@ pub fn main() {
                                     recipients.push((verifier, Address::from(socket_addr)));
                                 }
                                 Err(_) => {
-                                    panic!("Contributor address not well-formed: {socket}");
+                                    panic!("Operator address not well-formed: {socket}");
                                 }
                             }
                         }
                     }
                 }
             }
-            orchestrator_pub_key = PublicKey::create_from_g2_coordinates(
-                &orchestrator_config.g2_x1,
-                &orchestrator_config.g2_x2,
-                &orchestrator_config.g2_y1,
-                &orchestrator_config.g2_y2,
+            router_pub_key = PublicKey::create_from_g2_coordinates(
+                &router_config.g2_x1,
+                &router_config.g2_x2,
+                &router_config.g2_y1,
+                &router_config.g2_y2,
             )
             .unwrap();
 
-            let orchestrator_addr = orchestrator_config
+            let router_addr = router_config
                 .address
                 .parse::<IpAddr>()
                 .unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST));
 
             let local_addr = SocketAddr::new(
-                orchestrator_addr,
-                orchestrator_config
+                router_addr,
+                router_config
                     .port
                     .parse::<u16>()
                     .expect("Port not well-formed"),
             );
 
-            recipients.push((orchestrator_pub_key.clone(), Address::from(local_addr)));
+            recipients.push((router_pub_key.clone(), Address::from(local_addr)));
         }
 
         tracing::info!(storage_dir = %storage_dir.display(), "engine journal storage directory");
@@ -260,7 +259,7 @@ pub fn main() {
         // both sides resolve a duplicate to the same G1 key.
         let operators = &quorum_infos[0].operators;
         if operators.is_empty() {
-            panic!("Please provide at least one contributor");
+            panic!("Please provide at least one operator");
         }
         let key_map: Map<PublicKey, G1PublicKey> =
             Map::from_iter_dedup(operators.iter().map(|operator| {
@@ -329,7 +328,7 @@ pub fn main() {
         // are authorized on the channel but must not assign heights).
         {
             let task_book_mailbox = task_book_mailbox.clone();
-            let router_key = orchestrator_pub_key.clone();
+            let router_key = router_pub_key.clone();
             let engine_tip = Arc::clone(&engine_tip);
             let min_report_interval = rebroadcast_interval();
             context.child("directives").spawn(move |_| async move {

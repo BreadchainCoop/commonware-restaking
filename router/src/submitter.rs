@@ -298,16 +298,16 @@ where
         // precomputed pubkey hash.
         let mut operators: Vec<Option<Address>> = Vec::with_capacity(participating.len());
         let mut misses: Vec<(usize, PublicKey, FixedBytes<32>)> = Vec::new();
-        for (index, (contributor, g1_pubkey)) in participating
+        for (index, (operator, g1_pubkey)) in participating
             .iter()
             .zip(participating_g1.iter())
             .enumerate()
         {
-            match self.operator_cache.get(contributor) {
+            match self.operator_cache.get(operator) {
                 Some(address) => operators.push(Some(*address)),
                 None => {
                     operators.push(None);
-                    misses.push((index, contributor.clone(), pubkey_hash(g1_pubkey)?));
+                    misses.push((index, operator.clone(), pubkey_hash(g1_pubkey)?));
                 }
             }
         }
@@ -332,11 +332,11 @@ where
             let resolved =
                 futures::future::join_all(calls.iter().map(|call| call.call().into_future())).await;
 
-            for ((index, contributor, _), result) in misses.into_iter().zip(resolved) {
+            for ((index, operator, _), result) in misses.into_iter().zip(resolved) {
                 let address = result.map_err(|e| {
                     anyhow::anyhow!("Failed to get operator from pubkey hash: {}", e)
                 })?;
-                self.operator_cache.insert(contributor, address);
+                self.operator_cache.insert(operator, address);
                 operators[index] = Some(address);
             }
         }

@@ -28,8 +28,8 @@ full task-flow and quorum model.
 
 ### Router Connection File
 
-A node locates the router via a JSON file passed to `--orchestrator` carrying
-the router's public identity and socket address:
+A node locates the router via a JSON file passed to `--router` carrying the
+router's public identity and socket address:
 
 ```json
 {
@@ -61,7 +61,7 @@ the router's public identity and socket address:
 ### Running
 
 ```bash
-cargo run --release -- --key-file operator1.bls.key.json --port 3001 --orchestrator public_orchestrator.json
+cargo run --release -- --key-file operator1.bls.key.json --port 3001 --router public_router.json
 ```
 
 Run one process per operator, each with its own `--key-file` and `--port`.

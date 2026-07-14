@@ -55,7 +55,7 @@ services:
     volumes:
       - ./config/.nodes/operator_keys/testacc1.private.bls.key.json:/app/key.json:ro
       - ./config/.nodes:/app/.nodes:ro
-      - ./config/public_orchestrator.json:/app/public_orchestrator.json:ro
+      - ./config/public_router.json:/app/public_router.json:ro
       - node-1-data:/app/data
     command:
       [
@@ -63,8 +63,8 @@ services:
         "/app/key.json",
         "--port",
         "3001",
-        "--orchestrator",
-        "/app/public_orchestrator.json",
+        "--router",
+        "/app/public_router.json",
       ]
     ports:
       - "3001:3001"
@@ -91,7 +91,7 @@ services:
     volumes:
       - ./config/.nodes/operator_keys/testacc2.private.bls.key.json:/app/key.json:ro
       - ./config/.nodes:/app/.nodes:ro
-      - ./config/public_orchestrator.json:/app/public_orchestrator.json:ro
+      - ./config/public_router.json:/app/public_router.json:ro
       - node-2-data:/app/data
     command:
       [
@@ -99,8 +99,8 @@ services:
         "/app/key.json",
         "--port",
         "3002",
-        "--orchestrator",
-        "/app/public_orchestrator.json",
+        "--router",
+        "/app/public_router.json",
       ]
     ports:
       - "3002:3002"
@@ -127,7 +127,7 @@ services:
     volumes:
       - ./config/.nodes/operator_keys/testacc3.private.bls.key.json:/app/key.json:ro
       - ./config/.nodes:/app/.nodes:ro
-      - ./config/public_orchestrator.json:/app/public_orchestrator.json:ro
+      - ./config/public_router.json:/app/public_router.json:ro
       - node-3-data:/app/data
     command:
       [
@@ -135,8 +135,8 @@ services:
         "/app/key.json",
         "--port",
         "3003",
-        "--orchestrator",
-        "/app/public_orchestrator.json",
+        "--router",
+        "/app/public_router.json",
       ]
     ports:
       - "3003:3003"
@@ -167,9 +167,9 @@ services:
       - STORAGE_DIR=/app/data
     volumes:
       - ./config/.nodes:/app/.nodes:ro
-      - ./config/router_orchestrator.json:/app/router_orchestrator.json:ro
+      - ./config/router_key.json:/app/router_key.json:ro
       - router-data:/app/data
-    command: ["--key-file", "/app/router_orchestrator.json", "--port", "3000"]
+    command: ["--key-file", "/app/router_key.json", "--port", "3000"]
     ports:
       - "4000:3000"
       - "8080:8080"
