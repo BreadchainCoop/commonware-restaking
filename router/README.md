@@ -65,15 +65,15 @@ Contract addresses are loaded from the deployment JSON file.
 ### Running
 
 ```bash
-cargo run -p counter-router --release -- --key-file router_orchestrator.json --port 3000
+cargo run -p counter-router --release -- --key-file router_key.json --port 3000
 ```
 
 `--key-file` is the router's own BLS private key (`{"privateKey": "..."}`).
 `--bootstrappers` optionally takes a comma-separated list of additional peer
 addresses. Nodes locate the router via a separate file carrying its public
 identity and socket address (`{g2_x1, g2_x2, g2_y1, g2_y2, address, port}`,
-conventionally named `public_orchestrator.json`), passed to each node's
-`--orchestrator` flag.
+conventionally named `public_router.json`), passed to each node's `--router`
+flag.
 
 ### Docker
 

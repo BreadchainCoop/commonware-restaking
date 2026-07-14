@@ -103,7 +103,7 @@ pub fn main() {
     let runner = tokio::Runner::new(runtime_cfg);
 
     // Parse arguments
-    let matches = Command::new("orchestrator")
+    let matches = Command::new("router")
         .about("generate and verify BN254 Multi-Signatures")
         .arg(
             Arg::new("bootstrappers")
@@ -198,9 +198,9 @@ pub fn main() {
                 }
             }
             // Authorize ourselves too (nodes dial the router from
-            // public_orchestrator.json; this entry is never dialed by us).
-            let orchestrator_verifier = signer.public_key();
-            recipients.push((orchestrator_verifier, Address::from(my_addr)));
+            // public_router.json; this entry is never dialed by us).
+            let router_verifier = signer.public_key();
+            recipients.push((router_verifier, Address::from(my_addr)));
         }
         let subscriber = tracing_subscriber::fmt()
             .with_max_level(tracing::Level::DEBUG)
@@ -221,12 +221,12 @@ pub fn main() {
         // different G1 keys cannot misalign the two sides' participant indices.
         let operators = &quorum_infos[0].operators;
         if operators.is_empty() {
-            panic!("Please provide at least one contributor");
+            panic!("Please provide at least one operator");
         }
         let key_map: Map<PublicKey, G1PublicKey> =
             Map::from_iter_dedup(operators.iter().map(|operator| {
                 let keys = operator.pub_keys.as_ref().expect("operator has BLS keys");
-                tracing::info!(key = ?keys.g2_pub_key, "registered contributor");
+                tracing::info!(key = ?keys.g2_pub_key, "registered operator");
                 (keys.g2_pub_key.clone(), keys.g1_pub_key.clone())
             }));
         let participants: Set<PublicKey> = Set::from_iter_dedup(key_map.iter().cloned());
