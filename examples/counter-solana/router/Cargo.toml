@@ -1,0 +1,30 @@
+[package]
+name = "counter-solana-router"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[[bin]]
+name = "counter-solana-router"
+path = "src/app.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+clap = { workspace = true }
+commonware-avs-core = { path = "../../../core" }
+commonware-avs-jito = { path = "../../../jito" }
+commonware-avs-router = { path = "../../../router" }
+commonware-consensus = { workspace = true }
+commonware-cryptography = { workspace = true }
+commonware-p2p = { workspace = true }
+commonware-parallel = { workspace = true }
+commonware-runtime = { workspace = true }
+commonware-utils = { workspace = true }
+counter-solana-common = { path = "../common" }
+dotenv = { workspace = true }
+governor = { workspace = true }
+solana-sdk = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
