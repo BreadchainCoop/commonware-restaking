@@ -1,0 +1,261 @@
+#!/usr/bin/env bash
+#
+# solana_e2e_local.sh — ONE command boots the full Solana/Jito e2e stack:
+#
+#   solana-test-validator (real jito restaking + vault programs BUILT FROM
+#   SOURCE at rev 358fbc3c + the NCN program built from BreadchainCoop/
+#   jito-ncn-program main) -> deployer (configs, NCN, 4 operators, full
+#   handshake mesh, vault, delegations, real BLS proof-of-possession
+#   registrations) -> restart the validator with --warp-slot into epoch 2
+#   (jito SlotToggles need `current_epoch > activation_epoch + 1` and
+#   epoch_length is HARDCODED to 432,000 slots at InitializeConfig — no admin
+#   ix exists to change it; the warp-restart compresses the empty epochs while
+#   every state transition stays a real transaction) -> vault + snapshot
+#   cranks -> router + 4 node processes reach BLS quorum on a digest ->
+#   JitoSubmitter lands VerifyCertificate -> ASSERT the successful
+#   transaction on-chain at `confirmed`.
+#
+# NO mocks, NO fake programs, real BLS certificates, real registrations.
+#
+# Requirements: Agave toolchain 4.1.x (solana-test-validator, cargo-build-sbf),
+# rust, git. Everything else is built from source by this script.
+#
+# Env overrides:
+#   E2E_WORK_DIR           artifacts + ledger + logs   (default: <repo>/.solana-e2e)
+#   JITO_RESTAKING_SRC     existing clone of jito-foundation/restaking @ 358fbc3c
+#   NCN_PROGRAM_SRC        existing clone of BreadchainCoop/jito-ncn-program main
+#   E2E_KEEP_LEDGER=1      keep the ledger dir on exit (large!)
+#   E2E_TICKS_PER_SLOT     validator ticks per slot (default 16)
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Pins — single source of truth for source provenance
+# ---------------------------------------------------------------------------
+JITO_RESTAKING_REV="358fbc3c20d947c977a136808f9fbf7f070e478b"
+JITO_RESTAKING_REPO="https://github.com/jito-foundation/restaking.git"
+NCN_PROGRAM_REPO="https://github.com/BreadchainCoop/jito-ncn-program.git"
+NCN_PROGRAM_REF="main"
+
+RESTAKING_PROGRAM_ID="RestkWeAVL8fRGgzhfeoqFhsqKRchg6aa1XrcH96z4Q"
+VAULT_PROGRAM_ID="Vau1t6sLNxnzB7ZDsef8TLbPLfyZMYXH8WTNqUdm9g8"
+NCN_PROGRAM_ID="3fKQSi6VzzDUJSmeksS8qK6RB3Gs3UoZWtsQD3xagy45"
+
+# Jito epoch geometry (hardcoded in the programs at this rev).
+EPOCH_LENGTH=432000
+WARP_SLOT=$((2 * EPOCH_LENGTH + 100)) # first slots of epoch 2
+
+RPC_URL="http://127.0.0.1:8899"
+ROUTER_PORT=3100
+NODE_BASE_PORT=3101
+NUM_OPERATORS=4
+TICKS_PER_SLOT="${E2E_TICKS_PER_SLOT:-16}"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(dirname "$SCRIPT_DIR")"
+WORK="${E2E_WORK_DIR:-$ROOT/.solana-e2e}"
+OUT="$WORK/out"
+LEDGER="$WORK/ledger"
+LOGS="$WORK/logs"
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/solana-e2e-src"
+
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
+say()  { echo -e "${YELLOW}[e2e]${NC} $*"; }
+ok()   { echo -e "${GREEN}[e2e]${NC} $*"; }
+fail() { echo -e "${RED}[e2e] $*${NC}"; exit 1; }
+
+PIDS=()
+cleanup() {
+    local code=$?
+    say "cleanup (exit $code)"
+    for pid in "${PIDS[@]:-}"; do kill "$pid" 2>/dev/null || true; done
+    pkill -f "counter-solana-node --key-file $OUT" 2>/dev/null || true
+    pkill -f "counter-solana-router --key-file $OUT" 2>/dev/null || true
+    pkill -f "solana-test-validator --ledger $LEDGER" 2>/dev/null || true
+    sleep 1
+    if [[ "${E2E_KEEP_LEDGER:-0}" != "1" ]]; then rm -rf "$LEDGER"; fi
+    if [[ $code -ne 0 ]]; then
+        echo "--- router log tail ---";  tail -30 "$LOGS/router.log"  2>/dev/null || true
+        echo "--- node-0 log tail ---";  tail -15 "$LOGS/node-0.log"  2>/dev/null || true
+        echo "--- validator log tail ---"; tail -10 "$LOGS/validator-b.log" 2>/dev/null || true
+    fi
+    exit $code
+}
+trap cleanup EXIT INT TERM
+
+# ---------------------------------------------------------------------------
+# Step 0: toolchain preflight
+# ---------------------------------------------------------------------------
+SOLANA_BIN="$HOME/.local/share/solana/install/active_release/bin"
+[[ -d "$SOLANA_BIN" ]] && export PATH="$SOLANA_BIN:$PATH"
+for tool in solana-test-validator cargo-build-sbf solana cargo git; do
+    command -v "$tool" >/dev/null 2>&1 || fail "$tool not found on PATH (install Agave: sh -c \"\$(curl -sSfL https://release.anza.xyz/v4.1.1/install)\")"
+done
+say "toolchain: $(solana --version | head -1)"
+mkdir -p "$WORK" "$OUT" "$LOGS" "$CACHE"
+
+# ---------------------------------------------------------------------------
+# Step 1: build the three programs FROM SOURCE
+# ---------------------------------------------------------------------------
+RESTAKING_SRC="${JITO_RESTAKING_SRC:-$CACHE/restaking-$JITO_RESTAKING_REV}"
+if [[ ! -d "$RESTAKING_SRC/.git" ]]; then
+    say "cloning jito-foundation/restaking @ $JITO_RESTAKING_REV"
+    git init -q "$RESTAKING_SRC"
+    git -C "$RESTAKING_SRC" remote add origin "$JITO_RESTAKING_REPO"
+    git -C "$RESTAKING_SRC" fetch -q --depth 1 origin "$JITO_RESTAKING_REV"
+    git -C "$RESTAKING_SRC" checkout -q FETCH_HEAD
+fi
+HEAD_REV="$(git -C "$RESTAKING_SRC" rev-parse HEAD)"
+[[ "$HEAD_REV" == "$JITO_RESTAKING_REV" ]] || fail "restaking src at $HEAD_REV, expected $JITO_RESTAKING_REV"
+
+RESTAKING_SO="$RESTAKING_SRC/target/deploy/jito_restaking_program.so"
+VAULT_SO="$RESTAKING_SRC/target/deploy/jito_vault_program.so"
+if [[ ! -f "$RESTAKING_SO" || ! -f "$VAULT_SO" ]]; then
+    say "building jito restaking + vault programs (cargo-build-sbf, env-injected program ids)"
+    (cd "$RESTAKING_SRC" \
+        && RESTAKING_PROGRAM_ID="$RESTAKING_PROGRAM_ID" VAULT_PROGRAM_ID="$VAULT_PROGRAM_ID" \
+           cargo-build-sbf --manifest-path restaking_program/Cargo.toml \
+        && RESTAKING_PROGRAM_ID="$RESTAKING_PROGRAM_ID" VAULT_PROGRAM_ID="$VAULT_PROGRAM_ID" \
+           cargo-build-sbf --manifest-path vault_program/Cargo.toml)
+fi
+ok "jito programs: $(basename "$RESTAKING_SO") $(stat -f%z "$RESTAKING_SO" 2>/dev/null || stat -c%s "$RESTAKING_SO") B, $(basename "$VAULT_SO") $(stat -f%z "$VAULT_SO" 2>/dev/null || stat -c%s "$VAULT_SO") B"
+
+NCN_SRC="${NCN_PROGRAM_SRC:-$CACHE/jito-ncn-program}"
+if [[ ! -d "$NCN_SRC/.git" ]]; then
+    say "cloning BreadchainCoop/jito-ncn-program @ $NCN_PROGRAM_REF"
+    git clone -q --branch "$NCN_PROGRAM_REF" "$NCN_PROGRAM_REPO" "$NCN_SRC"
+    # The workspace needs the router submodule present to load; rewrite the
+    # SSH submodule URL to https (public repo).
+    git -C "$NCN_SRC" config url."https://github.com/".insteadOf "git@github.com:"
+    git -C "$NCN_SRC" submodule update --init commonware-avs-router-solana
+fi
+NCN_SO="$WORK/ncn_program.so"
+if [[ ! -f "$NCN_SO" || -n "$(find "$NCN_SRC/program/src" -newer "$NCN_SO" 2>/dev/null | head -1)" ]]; then
+    say "building NCN program (cargo-build-sbf) from $(git -C "$NCN_SRC" rev-parse --short HEAD)"
+    (cd "$NCN_SRC" && cargo build-sbf --manifest-path program/Cargo.toml --sbf-out-dir "$WORK")
+fi
+ok "ncn program: $(stat -f%z "$NCN_SO" 2>/dev/null || stat -c%s "$NCN_SO") B"
+
+# ---------------------------------------------------------------------------
+# Step 2: build the off-chain binaries
+# ---------------------------------------------------------------------------
+say "building deployer + node + router binaries"
+(cd "$ROOT" && cargo build -p counter-solana-deployer -p counter-solana-node -p counter-solana-router)
+DEPLOYER="$ROOT/target/debug/counter-solana-deployer"
+NODE_BIN="$ROOT/target/debug/counter-solana-node"
+ROUTER_BIN="$ROOT/target/debug/counter-solana-router"
+
+# ---------------------------------------------------------------------------
+# Step 3: validator phase A (genesis, epoch 0)
+# ---------------------------------------------------------------------------
+start_validator() {
+    local log="$1"; shift
+    solana-test-validator --ledger "$LEDGER" \
+        --ticks-per-slot "$TICKS_PER_SLOT" \
+        --bpf-program "$RESTAKING_PROGRAM_ID" "$RESTAKING_SO" \
+        --bpf-program "$VAULT_PROGRAM_ID" "$VAULT_SO" \
+        --bpf-program "$NCN_PROGRAM_ID" "$NCN_SO" \
+        --quiet "$@" &> "$log" &
+    VALIDATOR_PID=$!
+}
+
+wait_rpc() {
+    local deadline=$((SECONDS + 120))
+    until solana slot -u "$RPC_URL" &>/dev/null; do
+        [[ $SECONDS -lt $deadline ]] || fail "validator RPC not up within 120s"
+        kill -0 "$VALIDATOR_PID" 2>/dev/null || fail "validator process died (see logs)"
+        sleep 2
+    done
+}
+
+rm -rf "$LEDGER"
+say "starting validator (phase A, genesis)"
+start_validator "$LOGS/validator-a.log" --reset
+wait_rpc
+ok "validator up at slot $(solana slot -u "$RPC_URL")"
+
+# ---------------------------------------------------------------------------
+# Step 4: deploy (epoch 0) — all real txs incl. BLS PoP registrations
+# ---------------------------------------------------------------------------
+say "phase A: deploy"
+"$DEPLOYER" --rpc-url "$RPC_URL" --out-dir "$OUT" deploy \
+    --restaking-program-id "$RESTAKING_PROGRAM_ID" \
+    --vault-program-id "$VAULT_PROGRAM_ID" \
+    --ncn-program-id "$NCN_PROGRAM_ID" \
+    --num-operators "$NUM_OPERATORS" \
+    --base-port "$NODE_BASE_PORT" \
+    --router-port "$ROUTER_PORT" | tee "$LOGS/deploy.log"
+
+# ---------------------------------------------------------------------------
+# Step 5: restart with --warp-slot into epoch 2 (SlotToggles go Active)
+# ---------------------------------------------------------------------------
+# CRITICAL: a --warp-slot restart rebuilds the bank from the latest FULL
+# SNAPSHOT ARCHIVE in the ledger dir (snapshot-<slot>-<hash>.tar.zst, taken
+# every 100 slots — solana-test-validator 4.1.x exposes no interval flag);
+# the blockstore tail past that snapshot is NOT replayed. Killing the
+# validator before a snapshot covers the deploy tip silently drops the tail
+# transactions (empirically verified: post-snapshot accounts vanish across a
+# warp restart -> "Invalid account owner" in phase B). Wait for a covering
+# snapshot before killing.
+TIP_SLOT=$(solana slot -u "$RPC_URL")
+say "waiting for a full snapshot archive covering the deploy tip (slot $TIP_SLOT)"
+deadline=$((SECONDS + 600))
+while :; do
+    SNAP_SLOT=$(ls "$LEDGER"/snapshot-*.tar.zst 2>/dev/null \
+        | sed -E 's/.*snapshot-([0-9]+)-.*/\1/' | sort -n | tail -1)
+    [[ -n "${SNAP_SLOT:-}" && "$SNAP_SLOT" -ge "$TIP_SLOT" ]] && break
+    [[ $SECONDS -lt $deadline ]] || fail "no snapshot >= slot $TIP_SLOT within 600s (latest: ${SNAP_SLOT:-none})"
+    sleep 5
+done
+ok "snapshot at slot $SNAP_SLOT covers the deploy tip"
+
+say "restarting validator with --warp-slot $WARP_SLOT (epoch 2)"
+kill "$VALIDATOR_PID"; wait "$VALIDATOR_PID" 2>/dev/null || true
+# NOTE: on an existing ledger the --bpf-program/--ticks-per-slot genesis
+# flags are silently ignored; the restart only needs the ledger + warp slot.
+solana-test-validator --ledger "$LEDGER" --warp-slot "$WARP_SLOT" --quiet \
+    &> "$LOGS/validator-b.log" &
+VALIDATOR_PID=$!
+wait_rpc
+SLOT_B=$(solana slot -u "$RPC_URL")
+[[ "$SLOT_B" -ge "$WARP_SLOT" ]] || fail "warp restart landed at slot $SLOT_B < $WARP_SLOT"
+ok "validator warped to slot $SLOT_B (epoch $((SLOT_B / EPOCH_LENGTH)))"
+
+# ---------------------------------------------------------------------------
+# Step 6: activate (vault update crank + NCN snapshot crank)
+# ---------------------------------------------------------------------------
+say "phase B: activate"
+"$DEPLOYER" --rpc-url "$RPC_URL" --out-dir "$OUT" activate | tee "$LOGS/activate.log"
+
+# ---------------------------------------------------------------------------
+# Step 7: router + nodes
+# ---------------------------------------------------------------------------
+say "starting $NUM_OPERATORS nodes + router"
+export NCN_DEPLOYMENT_PATH="$OUT/ncn_deploy.json"
+for i in $(seq 0 $((NUM_OPERATORS - 1))); do
+    mkdir -p "$OUT/node-$i-data"
+    (cd "$OUT" && STORAGE_DIR="$OUT/node-$i-data" \
+        "$NODE_BIN" \
+        --key-file "$OUT/node-$i.bls.json" \
+        --port $((NODE_BASE_PORT + i)) \
+        --router "$OUT/router-connection.json" &> "$LOGS/node-$i.log") &
+    PIDS+=($!)
+done
+mkdir -p "$OUT/router-data"
+(cd "$OUT" && STORAGE_DIR="$OUT/router-data" \
+    SOLANA_PAYER_KEYPAIR="$OUT/authority.json" \
+    "$ROUTER_BIN" \
+    --key-file "$OUT/router.bls.json" \
+    --port "$ROUTER_PORT" &> "$LOGS/router.log") &
+PIDS+=($!)
+
+# ---------------------------------------------------------------------------
+# Step 8: assert — a successful VerifyCertificate on-chain at `confirmed`
+# ---------------------------------------------------------------------------
+say "waiting for an on-chain VerifyCertificate (confirmed)"
+"$DEPLOYER" --rpc-url "$RPC_URL" --out-dir "$OUT" assert-verified --timeout-secs 300
+
+if grep -q "verification finalized" "$LOGS/router.log"; then
+    ok "router reported: $(grep -m1 'verification finalized' "$LOGS/router.log" | tail -c 200)"
+fi
+ok "SOLANA E2E PASSED — real BLS certificate verified on-chain by the NCN program"

@@ -48,5 +48,13 @@ on-chain bitmap (padding bits set, byte-exact with
 engine + sequencer + `JitoSubmitter`) and node (signing participant) wired
 against a live NCN deployment. It needs a real chain (deployment JSON +
 funded payer); nothing is mocked — unit tests use the real crypto
-(host-side `ncn-program-core` signing) and the compose e2e leg lands in a
-later phase.
+(host-side `ncn-program-core` signing).
+
+The full local e2e is ONE command: `./scripts/solana_e2e_local.sh` — it
+builds the jito restaking/vault programs from source at the pinned rev and
+the NCN program from main, boots a two-phase (`--warp-slot`) test validator,
+runs `examples/counter-solana/deployer` (real registrations incl. BLS
+proof-of-possession), starts 4 nodes + the router, and asserts a successful
+on-chain `VerifyCertificate` at `confirmed`. CI runs the same script in
+`.github/workflows/solana-e2e.yml`; `docker-compose.solana.yml` is the
+containerized variant. See `scripts/README.md` for details.

@@ -1,0 +1,73 @@
+name: Solana E2E
+
+# The full Solana/Jito leg: real jito restaking + vault programs built from
+# source at the pinned rev, the NCN program built from BreadchainCoop/
+# jito-ncn-program main, a two-phase (--warp-slot) solana-test-validator,
+# 4 real BLS operator registrations, engine quorum, and an on-chain
+# VerifyCertificate asserted at `confirmed`. NO mocks. See
+# scripts/solana_e2e_local.sh — this job runs exactly that script.
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+      - staging
+      - jito-compose
+  pull_request:
+    branches:
+      - main
+      - dev
+      - staging
+
+env:
+  AGAVE_VERSION: v4.1.1
+  CARGO_TERM_COLOR: always
+
+jobs:
+  solana-e2e:
+    name: Solana full-stack e2e (validator + deployer + router + 4 nodes)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Agave toolchain (solana-test-validator + cargo-build-sbf)
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      - name: Verify toolchain
+        run: |
+          solana --version
+          solana-test-validator --version
+          cargo-build-sbf --version
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: solana-e2e-cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: solana-e2e-cargo-${{ runner.os }}-
+
+      - name: Cache source-built jito programs (pinned rev)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/solana-e2e-src
+          key: solana-e2e-src-${{ runner.os }}-${{ env.AGAVE_VERSION }}-358fbc3c20d947c977a136808f9fbf7f070e478b
+
+      - name: Run the one-command e2e
+        run: bash scripts/solana_e2e_local.sh
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: solana-e2e-logs
+          path: .solana-e2e/logs/
+          if-no-files-found: ignore

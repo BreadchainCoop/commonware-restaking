@@ -108,7 +108,9 @@ pub fn main() {
             .with_max_level(tracing::Level::DEBUG)
             .with_writer(std::io::stdout)
             .finish();
-        let _ = tracing::subscriber::set_default(subscriber);
+        // Hold the guard for the life of the task — `let _ =` would drop it
+        // immediately and silently disable all tracing output.
+        let _tracing_guard = tracing::subscriber::set_default(subscriber);
         dotenv::dotenv().ok();
 
         let deployment = NcnDeployment::load().expect("NCN_DEPLOYMENT_PATH config");

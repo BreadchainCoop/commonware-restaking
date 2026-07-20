@@ -11,8 +11,9 @@ path = "src/main.rs"
 [dependencies]
 anyhow = { workspace = true }
 borsh = "0.10.3"
-clap = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
 hex = { workspace = true }
+jito-bytemuck = { workspace = true }
 jito-restaking-core = { workspace = true }
 jito-restaking-sdk = { workspace = true }
 jito-vault-core = { workspace = true }
@@ -23,5 +24,6 @@ serde_json = { workspace = true }
 solana-client = { workspace = true }
 solana-program = { workspace = true }
 solana-sdk = { workspace = true }
+solana-transaction-status-client-types = { workspace = true }
 spl-associated-token-account = { workspace = true }
 spl-token = { workspace = true }
