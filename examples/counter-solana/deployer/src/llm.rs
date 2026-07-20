@@ -429,13 +429,16 @@ pub fn llm_stage(
 // llm-assert
 // ---------------------------------------------------------------------------
 
-/// Finds the (successful) settle transaction touching `state_pda` and returns
-/// `(signature, settle ix data, inner self-CPI datas)`.
+/// A landed settle transaction: signature, the settle instruction's data,
+/// and the datas of the self-CPI inner instructions (the emitted events).
+type SettleTx = (Signature, Vec<u8>, Vec<Vec<u8>>);
+
+/// Finds the (successful) settle transaction touching `state_pda`.
 fn find_settle_tx(
     client: &RpcClient,
     settlement_pid: &Pubkey,
     state_pda: &Pubkey,
-) -> Result<Option<(Signature, Vec<u8>, Vec<Vec<u8>>)>> {
+) -> Result<Option<SettleTx>> {
     let sigs = client.get_signatures_for_address_with_config(
         state_pda,
         GetConfirmedSignaturesForAddress2Config {
