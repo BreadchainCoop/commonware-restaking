@@ -16,7 +16,7 @@ Built against the cross-track interface contract in
 | `config` | `NcnDeployment` — the NCN deployment JSON (`NCN_DEPLOYMENT_PATH`), analog of the EVM `avs_deploy.json`, plus PDA derivations. |
 | `network` | `JitoStakingClient` — operators via `getProgramAccounts` memcmp on `NCNOperatorAccount` (ncn field; ip+port sockets), stake/APK from the `Snapshot` PDA, all reads at `confirmed` minimum. Produces `JitoQuorum`: index-aligned participant set / G1 keys / on-chain operator indices / stakes. |
 | `quorum` | Startup reconciliation (§5): the minimum total stake over all `(N−f)`-sized signer subsets must clear `consensus_threshold_bps`, else refuse to start. |
-| `instruction` | Manual `VerifyCertificate` instruction construction (frozen §2 shape; borsh cross-checked). Discriminator is a TODO-FREEZE const until the `phase1-dmsg` branch pushes the generated client. |
+| `instruction` | Manual `VerifyCertificate` instruction construction (frozen §2 shape; borsh cross-checked). Discriminator (byte `10`) is FROZEN and differentially pinned against `ncn_program_core::instruction::NCNProgramInstruction` — the enum the generated client derives from (Phase 1, merged to `main`). |
 | `submitter` | `JitoSubmitter` + the `SolanaCertificateHandler` trait (peer of the EVM `BlsSignatureVerificationHandler`). `VerifyCertificateHandler` sends the tx with a compute budget; `Resolution{Executed}` only at `finalized`; blockhash expiry → rebuild and resend. A settlement-program handler (INTERFACES §4, Track C `settlement_core`) plugs into the same seam. |
 
 Participant indices (sorted G2 positions in the chassis `ordered::Set`) are
@@ -33,11 +33,14 @@ on-chain bitmap (padding bits set, byte-exact with
   jito-ncn-program patch set so ONE set of solana types flows through the
   whole graph. The patch is inert for the EVM path.
 - jito-foundation/restaking branch `v2.1-upgrade` was DELETED upstream; its
-  head `358fbc3` (what jito-ncn-program pins) remains fetchable by SHA and is
-  pinned in the checked-in `Cargo.lock`. A full `cargo update` (or
-  `cargo update` of the restaking source) will fail against the dead branch —
-  update surgically (`cargo update -p <pkg> --precise <ver>`) until upstream
-  re-pins by rev.
+  head `358fbc3c` (what jito-ncn-program pins) remains fetchable by SHA. The
+  workspace therefore pins every restaking crate by
+  `rev = "358fbc3c20d947c977a136808f9fbf7f070e478b"` (mirroring
+  jito-ncn-program main's own re-pin), so fresh clones and `cargo update`
+  never touch the dead branch ref. Update surgically
+  (`cargo update -p <pkg> --precise <ver>`) all the same — the jito-solana
+  fork rev and the restaking rev must move together with the
+  `ncn-program-core` pin.
 
 ## Example
 

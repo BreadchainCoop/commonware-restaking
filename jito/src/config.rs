@@ -61,10 +61,11 @@ pub struct NcnDeployment {
     pub restaking_program_id: String,
     /// Stake-weighted consensus threshold in bps.
     ///
-    /// TODO-FREEZE(phase1-dmsg): Phase 1 adds `consensus_threshold_bps` to the
-    /// NCN `Config` PDA (admin-settable, default 6667). Once the git dep on
-    /// `ncn-program-core` picks that up, the on-chain value becomes the source
-    /// of truth and this field is only a fallback.
+    /// Phase 1 put `consensus_threshold_bps` on the NCN `Config` PDA
+    /// (admin-settable, default 6667) and `get_quorum` reads THAT value — the
+    /// one `VerifyCertificate` enforces. This field is only the fallback for
+    /// the window where the Config PDA does not exist yet; a mismatch is
+    /// logged and resolved in favor of the chain.
     #[serde(default = "default_threshold_bps")]
     pub consensus_threshold_bps: u64,
     /// Compute-unit limit for submitted transactions.

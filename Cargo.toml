@@ -8,6 +8,7 @@ members = [
     "examples/counter/node",
     "examples/counter/router",
     "examples/counter-solana/common",
+    "examples/counter-solana/deployer",
     "examples/counter-solana/node",
     "examples/counter-solana/router",
     "jito",
@@ -83,12 +84,19 @@ url = { version = "2.5.4", features = ["serde"] }
 # workspace pins solana-program to the jito-solana fork below, so the solana
 # runtime crates here use the SAME git source to keep types unified.
 ncn-program-core = { git = "https://github.com/BreadchainCoop/jito-ncn-program", branch = "main" }
-# NOTE: branch v2.1-upgrade was DELETED upstream; its head 358fbc3 is what
-# jito-ncn-program pins and remains fetchable by SHA. The checked-in
-# Cargo.lock pins that rev, which is the ONLY thing keeping this source
-# resolvable — do not run a full `cargo update` for this source (see
-# jito/README section in the PR description).
-jito-bytemuck = { git = "https://github.com/jito-foundation/restaking", branch = "v2.1-upgrade" }
+# NOTE: branch v2.1-upgrade was DELETED upstream; its head 358fbc3c remains
+# fetchable by SHA, so these deps are pinned by `rev` (mirrors jito-ncn-program
+# main's own re-pin). This removes the fresh-clone dependency on the dead
+# branch ref that the previous `branch = "v2.1-upgrade"` + seeded-Cargo.lock
+# arrangement carried. The sdk/core crates are the programs' own instruction
+# builders + PDA derivations, used by the counter-solana deployer.
+jito-bytemuck = { git = "https://github.com/jito-foundation/restaking", rev = "358fbc3c20d947c977a136808f9fbf7f070e478b" }
+jito-restaking-core = { git = "https://github.com/jito-foundation/restaking", rev = "358fbc3c20d947c977a136808f9fbf7f070e478b" }
+jito-restaking-sdk = { git = "https://github.com/jito-foundation/restaking", rev = "358fbc3c20d947c977a136808f9fbf7f070e478b" }
+jito-vault-core = { git = "https://github.com/jito-foundation/restaking", rev = "358fbc3c20d947c977a136808f9fbf7f070e478b" }
+jito-vault-sdk = { git = "https://github.com/jito-foundation/restaking", rev = "358fbc3c20d947c977a136808f9fbf7f070e478b" }
+spl-token = "6.0.0"
+spl-associated-token-account = "6.0.0"
 solana-account-decoder = { git = "https://github.com/jito-foundation/jito-solana.git", rev = "87dcd086af931d81a0a71ad49cbea38e9655f166" }
 solana-client = { git = "https://github.com/jito-foundation/jito-solana.git", rev = "87dcd086af931d81a0a71ad49cbea38e9655f166" }
 solana-program = { git = "https://github.com/jito-foundation/jito-solana.git", rev = "87dcd086af931d81a0a71ad49cbea38e9655f166" }

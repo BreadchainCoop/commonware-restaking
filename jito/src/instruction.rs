@@ -12,16 +12,17 @@ use solana_sdk::pubkey::Pubkey;
 
 /// The instruction discriminator prefix for `VerifyCertificate`.
 ///
-/// TODO-FREEZE(phase1-dmsg): Phase 1 is built in parallel on the
-/// `jito-ncn-program` branch `phase1-dmsg`, which is NOT pushed yet, so the
-/// shank/kinobi-generated discriminator is not knowable. The program's
-/// existing instructions use 1-byte borsh enum indices (kinobi
-/// `CastVoteInstructionData { discriminator: u8 } = 10`), NOT 8-byte
-/// anchor-style discriminators; `VerifyCertificate` replaces `CastVote`
-/// (INTERFACES.md §2), so index 10 is the best-known placeholder. The
-/// `discriminator_matches_generated_client` test below MUST be pointed at the
-/// generated `ncn-program-client` value (and this const frozen) before any
-/// live submission.
+/// FROZEN against Phase 1 (merged to jito-ncn-program `main`): the program
+/// uses 1-byte borsh enum indices (NOT 8-byte anchor-style discriminators)
+/// and `VerifyCertificate` sits at index 10 of `NCNProgramInstruction` — the
+/// `CastVote` slot it replaced. The generated client
+/// (`clients/rust/ncn_program/.../verify_certificate.rs`) emits the same
+/// `VerifyCertificateInstructionData { discriminator: 10 }`. The
+/// `discriminator_matches_generated_client` test below pins the FULL
+/// instruction-data encoding (discriminator ‖ borsh(args)) byte-for-byte
+/// against `ncn_program_core::instruction::NCNProgramInstruction`, the enum
+/// shank generates that client from, so any upstream reordering fails loudly
+/// on the next dep bump.
 pub const VERIFY_CERTIFICATE_DISCRIMINATOR: &[u8] = &[10];
 
 /// The `VerifyCertificate` argument block (post-discriminator instruction
@@ -180,18 +181,33 @@ mod tests {
         assert_eq!(args.instruction_data(), expected);
     }
 
-    /// TODO-FREEZE(phase1-dmsg): once the `phase1-dmsg` branch pushes the
-    /// generated `ncn-program-client`, replace the right-hand side with the
-    /// client's `VerifyCertificateInstructionData` discriminator and delete
-    /// this comment. Until then this pins the documented placeholder (the
-    /// CastVote slot it replaces) so any silent change is caught.
+    /// FROZEN: pins the const AND the complete instruction-data encoding to
+    /// `ncn_program_core::instruction::NCNProgramInstruction` — the enum the
+    /// shank/kinobi client generation reads, whose borsh serialization IS
+    /// `discriminator ‖ args`. The generated client's
+    /// `VerifyCertificateInstructionData` carries the same byte (10). If a
+    /// dep bump reorders the enum, this fails before anything reaches a
+    /// validator.
     #[test]
     fn discriminator_matches_generated_client() {
+        let args = sample_args();
+        let program_enum =
+            ncn_program_core::instruction::NCNProgramInstruction::VerifyCertificate {
+                digest: args.digest,
+                aggregated_g2: args.aggregated_g2,
+                aggregated_signature: args.aggregated_signature,
+                operators_signature_bitmap: args.operators_signature_bitmap.clone(),
+                expected_generation: args.expected_generation,
+            };
+        let canonical = program_enum.try_to_vec().expect("enum serializes");
+        // First byte(s): the discriminator const, frozen at the generated
+        // client's value (1-byte kinobi/borsh enum index, value 10).
+        assert_eq!(VERIFY_CERTIFICATE_DISCRIMINATOR, &canonical[..1]);
         assert_eq!(VERIFY_CERTIFICATE_DISCRIMINATOR, &[10]);
-        // The program uses 1-byte kinobi/borsh enum discriminators today; if
-        // the frozen shape switches to 8-byte shank discriminators this length
-        // assertion must be updated together with the const.
         assert_eq!(VERIFY_CERTIFICATE_DISCRIMINATOR.len(), 1);
+        // Full differential: our hand-rolled encoding == the program enum's
+        // borsh encoding, byte for byte.
+        assert_eq!(args.instruction_data(), canonical);
     }
 
     #[test]

@@ -18,6 +18,7 @@ use crate::quorum::{QuorumReconciliation, reconcile};
 use anyhow::{Context, Result, anyhow};
 use commonware_utils::ordered::Set;
 use jito_bytemuck::{AccountDeserialize, Discriminator};
+use ncn_program_core::config::Config as NcnConfig;
 use ncn_program_core::ncn_operator_account::NCNOperatorAccount;
 use ncn_program_core::snapshot::Snapshot;
 use solana_account_decoder::UiAccountEncoding;
@@ -63,13 +64,10 @@ pub struct JitoQuorum {
     /// Registered-operator count from the snapshot — the on-chain bitmap's
     /// bit-length domain.
     pub operators_registered: u64,
-    /// Snapshot generation captured at assembly time.
-    ///
-    /// TODO-FREEZE(phase1-dmsg): `main`'s `Snapshot` has no `generation`
-    /// field yet (Phase 1 adds it, bumped on register/remove/rotation). Until
-    /// the git dep picks that up this is ALWAYS 0, matching what the Phase 1
-    /// program will report for a never-mutated operator set; bump the
-    /// `ncn-program-core` dependency and read `snapshot.generation()` here.
+    /// Snapshot generation captured at assembly time — read from the on-chain
+    /// `Snapshot` (Phase 1 layout: bumped on operator register / remove / key
+    /// rotation). Certificates verify only against their generation, so the
+    /// submitter forwards this value as `expected_generation`.
     pub generation: u64,
     /// Slot the snapshot was last refreshed at (staleness input).
     pub last_snapshot_slot: u64,
@@ -206,6 +204,7 @@ impl JitoStakingClient {
 
         let accounts = self.fetch_operator_accounts(&program_id, &ncn).await?;
         let snapshot = self.fetch_snapshot().await?;
+        let threshold_bps = self.fetch_consensus_threshold_bps().await?;
 
         let mut operators = Vec::with_capacity(accounts.len());
         for account in &accounts {
@@ -253,11 +252,9 @@ impl JitoStakingClient {
         let quorum = JitoQuorum::from_parts(
             operators,
             snapshot.operators_registered(),
-            // TODO-FREEZE(phase1-dmsg): read snapshot.generation() once the
-            // Phase 1 snapshot layout lands on main (see JitoQuorum docs).
-            0,
+            snapshot.generation(),
             snapshot.last_snapshot_slot(),
-            self.deployment.consensus_threshold_bps,
+            threshold_bps,
         );
         info!(
             operators = quorum.operators.len(),
@@ -338,6 +335,44 @@ impl JitoStakingClient {
         let snapshot = Snapshot::try_from_slice_unchecked(account.data.as_slice())
             .map_err(|error| anyhow!("undecodable Snapshot account: {error:?}"))?;
         Ok(*snapshot)
+    }
+
+    /// Reads `consensus_threshold_bps` from the on-chain NCN program `Config`
+    /// PDA — the value `VerifyCertificate` actually enforces (Phase 1,
+    /// admin-settable). Falls back to the deployment JSON's
+    /// `consensusThresholdBps` only when the Config PDA does not exist yet
+    /// (pre-initialization tooling paths); a mismatch between chain and JSON
+    /// is logged and resolved in favor of the chain.
+    async fn fetch_consensus_threshold_bps(&self) -> Result<u64> {
+        let config_pda = self
+            .deployment
+            .ncn_config_pda()
+            .map_err(|e| anyhow!("ncn config pda derivation failed: {e}"))?;
+        let account = self
+            .rpc
+            .get_account_with_commitment(&config_pda, self.commitment)
+            .await
+            .context("get_account(NcnConfig) failed")?
+            .value;
+        let Some(account) = account else {
+            warn!(
+                config_pda = %config_pda,
+                fallback_bps = self.deployment.consensus_threshold_bps,
+                "NCN Config PDA missing; using deployment JSON threshold"
+            );
+            return Ok(self.deployment.consensus_threshold_bps);
+        };
+        let config = NcnConfig::try_from_slice_unchecked(account.data.as_slice())
+            .map_err(|error| anyhow!("undecodable NCN Config account: {error:?}"))?;
+        let onchain = u64::from(config.consensus_threshold_bps());
+        if onchain != self.deployment.consensus_threshold_bps {
+            warn!(
+                onchain_bps = onchain,
+                json_bps = self.deployment.consensus_threshold_bps,
+                "deployment JSON threshold differs from on-chain Config; using on-chain value"
+            );
+        }
+        Ok(onchain)
     }
 }
 

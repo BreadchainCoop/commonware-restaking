@@ -14,7 +14,8 @@
 //! - [`quorum`]: startup reconciliation between the engine's count-based N3f1
 //!   quorum and the program's stake-weighted threshold.
 //! - [`instruction`]: manual `VerifyCertificate` instruction construction
-//!   (frozen §2 shape; discriminator TODO-FREEZE until `phase1-dmsg` pushes).
+//!   (frozen §2 shape; discriminator pinned byte-for-byte against the Phase 1
+//!   `NCNProgramInstruction` enum on `main`).
 //! - [`submitter`]: [`submitter::JitoSubmitter`] + the
 //!   [`submitter::SolanaCertificateHandler`] seam (peer of the EVM
 //!   `BlsSignatureVerificationHandler`), with finalized-only resolutions and

@@ -229,8 +229,8 @@ pub fn main() {
             scheme.clone(),
             quorum.operator_indices(),
             quorum.operators_registered,
-            // Captured at quorum-assembly time (TODO-FREEZE: reads
-            // snapshot.generation() once Phase 1 lands — see JitoQuorum docs).
+            // Captured at quorum-assembly time from the on-chain
+            // Snapshot.generation (bumped on register/remove/rotation).
             quorum.generation,
             handler,
             assignments.clone(),
