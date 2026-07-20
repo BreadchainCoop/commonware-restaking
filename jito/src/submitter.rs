@@ -94,14 +94,12 @@ pub struct SolanaExecutionResult {
 /// The submitter has already translated the certificate into the §2 wire
 /// triple; implementations decide WHICH instruction consumes it: the NCN
 /// program's standalone `VerifyCertificate` ([`VerifyCertificateHandler`]) or
-/// a settlement program's `settle` instruction (INTERFACES.md §4). Track C's
-/// `gaskiller-settlement` program (jito-ncn-program branch
-/// `settlement-program`, crate `settlement_core`) exposes the settle wire
-/// format for that handler: `SETTLE_DISCRIMINATOR ‖ borsh(payload,
-/// aggregated_g2, aggregated_signature, bitmap, expected_generation)` with
-/// `digest = sha256(borsh(SettlementPayload))` — a settle handler feeds this
-/// seam's [`CertificateSubmission`] fields into that instruction unchanged
-/// once the branch merges to `main`.
+/// the gaskiller-settlement program's `Settle` instruction (INTERFACES.md §4,
+/// [`crate::settle::SettleCertificateHandler`]): `SETTLE_DISCRIMINATOR ‖
+/// borsh(payload, aggregated_g2, aggregated_signature, bitmap,
+/// expected_generation)` with `digest = sha256(borsh(SettlementPayload))` —
+/// the settle handler feeds this seam's [`CertificateSubmission`] fields into
+/// that instruction unchanged.
 #[async_trait::async_trait]
 pub trait SolanaCertificateHandler: Send + Sync {
     /// The application's task payload type.
@@ -344,72 +342,27 @@ where
     }
 }
 
-/// The standalone-demo handler: submits the NCN program's `VerifyCertificate`
-/// instruction (INTERFACES.md §2) with a compute budget, resending on
-/// blockhash expiry, and reporting success only at `finalized`.
-pub struct VerifyCertificateHandler<T: TaskData> {
+/// Shared transaction courier for certificate handlers: signs with the payer,
+/// sends with preflight at the read commitment, reports success only at
+/// `finalized`, and rebuilds the TRANSACTION (never the certificate) on
+/// blockhash expiry.
+pub struct FinalizedSender {
     rpc: RpcClient,
-    program_id: Pubkey,
-    accounts: VerifyCertificateAccounts,
     payer: Keypair,
-    compute_unit_limit: u32,
-    compute_unit_price: Option<u64>,
     read_commitment: CommitmentConfig,
-    _task: std::marker::PhantomData<fn() -> T>,
 }
 
-impl<T: TaskData> VerifyCertificateHandler<T> {
-    /// Builds the handler from a deployment config and the fee-payer keypair.
+impl FinalizedSender {
+    /// Builds the courier from a deployment config and the fee-payer keypair.
     pub fn new(deployment: &NcnDeployment, payer: Keypair) -> Result<Self> {
         let read_commitment = deployment
             .read_commitment()
             .map_err(|e| anyhow!("invalid read commitment: {e}"))?;
         Ok(Self {
             rpc: RpcClient::new_with_commitment(deployment.rpc_http_url.clone(), read_commitment),
-            program_id: deployment
-                .ncn_program_id()
-                .map_err(|e| anyhow!("invalid ncn program id: {e}"))?,
-            accounts: VerifyCertificateAccounts {
-                ncn_config: deployment
-                    .ncn_config_pda()
-                    .map_err(|e| anyhow!("config pda: {e}"))?,
-                ncn: deployment.ncn().map_err(|e| anyhow!("ncn pubkey: {e}"))?,
-                snapshot: deployment
-                    .snapshot_pda()
-                    .map_err(|e| anyhow!("snapshot pda: {e}"))?,
-                restaking_config: deployment
-                    .restaking_config_pda()
-                    .map_err(|e| anyhow!("restaking config pda: {e}"))?,
-            },
             payer,
-            compute_unit_limit: deployment.compute_unit_limit,
-            compute_unit_price: deployment.compute_unit_price,
             read_commitment,
-            _task: std::marker::PhantomData,
         })
-    }
-
-    /// The instruction list for one submission: compute budget first, then
-    /// `VerifyCertificate`.
-    fn instructions(&self, submission: &CertificateSubmission) -> Vec<Instruction> {
-        let mut instructions = vec![ComputeBudgetInstruction::set_compute_unit_limit(
-            self.compute_unit_limit,
-        )];
-        if let Some(price) = self.compute_unit_price {
-            instructions.push(ComputeBudgetInstruction::set_compute_unit_price(price));
-        }
-        instructions.push(verify_certificate_instruction(
-            &self.program_id,
-            &self.accounts,
-            &VerifyCertificateArgs {
-                digest: submission.digest,
-                aggregated_g2: submission.aggregated_g2,
-                aggregated_signature: submission.aggregated_signature,
-                operators_signature_bitmap: submission.operators_signature_bitmap.clone(),
-                expected_generation: submission.expected_generation,
-            },
-        ));
-        instructions
     }
 
     /// Sends one signed transaction and waits for finalization or blockhash
@@ -417,6 +370,7 @@ impl<T: TaskData> VerifyCertificateHandler<T> {
     /// `Ok(None)` when the blockhash expired unobserved (rebuild and resend).
     async fn send_and_finalize(
         &self,
+        label: &str,
         instructions: &[Instruction],
         blockhash: Blockhash,
     ) -> Result<Option<SolanaExecutionResult>> {
@@ -437,7 +391,7 @@ impl<T: TaskData> VerifyCertificateHandler<T> {
             )
             .await
             .context("send_transaction failed")?;
-        debug!(tx = %signature, "verify-certificate transaction sent");
+        debug!(tx = %signature, "{label} transaction sent");
 
         loop {
             let statuses = self
@@ -472,6 +426,104 @@ impl<T: TaskData> VerifyCertificateHandler<T> {
             tokio::time::sleep(FINALITY_POLL_INTERVAL).await;
         }
     }
+
+    /// Sends `instructions` until finalized observation, refreshing the
+    /// blockhash up to [`MAX_TX_REBUILDS`] times.
+    pub async fn submit(
+        &self,
+        height: u64,
+        label: &str,
+        instructions: &[Instruction],
+    ) -> Result<SolanaExecutionResult> {
+        for rebuild in 0..MAX_TX_REBUILDS {
+            // A fresh blockhash per attempt: the TRANSACTION expires, the
+            // certificate does not.
+            let (blockhash, _) = self
+                .rpc
+                .get_latest_blockhash_with_commitment(self.read_commitment)
+                .await
+                .context("get_latest_blockhash failed")?;
+            match self
+                .send_and_finalize(label, instructions, blockhash)
+                .await?
+            {
+                Some(result) => return Ok(result),
+                None => {
+                    warn!(
+                        height,
+                        rebuild = rebuild + 1,
+                        max = MAX_TX_REBUILDS,
+                        "resending {label} transaction with a fresh blockhash"
+                    );
+                }
+            }
+        }
+        Err(anyhow!(
+            "transaction expired {MAX_TX_REBUILDS} times without finalized observation"
+        ))
+    }
+}
+
+/// The standalone-demo handler: submits the NCN program's `VerifyCertificate`
+/// instruction (INTERFACES.md §2) with a compute budget, resending on
+/// blockhash expiry, and reporting success only at `finalized`.
+pub struct VerifyCertificateHandler<T: TaskData> {
+    sender: FinalizedSender,
+    program_id: Pubkey,
+    accounts: VerifyCertificateAccounts,
+    compute_unit_limit: u32,
+    compute_unit_price: Option<u64>,
+    _task: std::marker::PhantomData<fn() -> T>,
+}
+
+impl<T: TaskData> VerifyCertificateHandler<T> {
+    /// Builds the handler from a deployment config and the fee-payer keypair.
+    pub fn new(deployment: &NcnDeployment, payer: Keypair) -> Result<Self> {
+        Ok(Self {
+            sender: FinalizedSender::new(deployment, payer)?,
+            program_id: deployment
+                .ncn_program_id()
+                .map_err(|e| anyhow!("invalid ncn program id: {e}"))?,
+            accounts: VerifyCertificateAccounts {
+                ncn_config: deployment
+                    .ncn_config_pda()
+                    .map_err(|e| anyhow!("config pda: {e}"))?,
+                ncn: deployment.ncn().map_err(|e| anyhow!("ncn pubkey: {e}"))?,
+                snapshot: deployment
+                    .snapshot_pda()
+                    .map_err(|e| anyhow!("snapshot pda: {e}"))?,
+                restaking_config: deployment
+                    .restaking_config_pda()
+                    .map_err(|e| anyhow!("restaking config pda: {e}"))?,
+            },
+            compute_unit_limit: deployment.compute_unit_limit,
+            compute_unit_price: deployment.compute_unit_price,
+            _task: std::marker::PhantomData,
+        })
+    }
+
+    /// The instruction list for one submission: compute budget first, then
+    /// `VerifyCertificate`.
+    fn instructions(&self, submission: &CertificateSubmission) -> Vec<Instruction> {
+        let mut instructions = vec![ComputeBudgetInstruction::set_compute_unit_limit(
+            self.compute_unit_limit,
+        )];
+        if let Some(price) = self.compute_unit_price {
+            instructions.push(ComputeBudgetInstruction::set_compute_unit_price(price));
+        }
+        instructions.push(verify_certificate_instruction(
+            &self.program_id,
+            &self.accounts,
+            &VerifyCertificateArgs {
+                digest: submission.digest,
+                aggregated_g2: submission.aggregated_g2,
+                aggregated_signature: submission.aggregated_signature,
+                operators_signature_bitmap: submission.operators_signature_bitmap.clone(),
+                expected_generation: submission.expected_generation,
+            },
+        ));
+        instructions
+    }
 }
 
 #[async_trait::async_trait]
@@ -485,29 +537,9 @@ impl<T: TaskData> SolanaCertificateHandler for VerifyCertificateHandler<T> {
         _task_data: Option<&T>,
     ) -> Result<SolanaExecutionResult> {
         let instructions = self.instructions(&submission);
-        for rebuild in 0..MAX_TX_REBUILDS {
-            // A fresh blockhash per attempt: the TRANSACTION expires, the
-            // certificate does not.
-            let (blockhash, _) = self
-                .rpc
-                .get_latest_blockhash_with_commitment(self.read_commitment)
-                .await
-                .context("get_latest_blockhash failed")?;
-            match self.send_and_finalize(&instructions, blockhash).await? {
-                Some(result) => return Ok(result),
-                None => {
-                    warn!(
-                        height,
-                        rebuild = rebuild + 1,
-                        max = MAX_TX_REBUILDS,
-                        "resending verify-certificate transaction with a fresh blockhash"
-                    );
-                }
-            }
-        }
-        Err(anyhow!(
-            "transaction expired {MAX_TX_REBUILDS} times without finalized observation"
-        ))
+        self.sender
+            .submit(height, "verify-certificate", &instructions)
+            .await
     }
 }
 

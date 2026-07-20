@@ -19,7 +19,12 @@
 //!   snapshot crank per operator, prints the resulting quorum view.
 //! - `assert-verified`: polls the chain for a successful `VerifyCertificate`
 //!   transaction (discriminator byte 10) at `confirmed` commitment.
+//!
+//! The LLM settlement leg adds `llm-init` / `llm-stage` / `llm-assert` /
+//! `llm-replay` (see the `llm` module docs): the gaskiller-settlement consumer
+//! around the same committee flow.
 
+mod llm;
 mod ncn_ix;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -108,6 +113,33 @@ enum Command {
         #[arg(long, default_value_t = 180)]
         timeout_secs: u64,
     },
+    /// LLM leg: InitializeState for the settlement consumer + emit artifacts.
+    LlmInit {
+        /// The checked-in producer fixture (provenance + story + root).
+        #[arg(long)]
+        fixture: PathBuf,
+        #[arg(long, default_value = llm::DEFAULT_SETTLEMENT_PROGRAM_ID)]
+        settlement_program_id: String,
+    },
+    /// LLM leg: stage the story bytes into the transition buffer (chunked).
+    LlmStage {
+        /// The REGENERATED payload fixture (real state pda + discriminator).
+        #[arg(long)]
+        payload: PathBuf,
+        /// Chunk size in bytes; must be smaller than the story so the append
+        /// path is exercised with >= 2 WriteBuffer calls.
+        #[arg(long, default_value_t = 256)]
+        chunk_size: usize,
+    },
+    /// LLM leg: assert the settle outcome on-chain at confirmed.
+    LlmAssert {
+        #[arg(long)]
+        payload: PathBuf,
+        #[arg(long, default_value_t = 300)]
+        timeout_secs: u64,
+    },
+    /// LLM leg: resubmit the landed Settle; must fail InvalidTransitionIndex.
+    LlmReplay,
 }
 
 /// Everything later phases need, persisted by `deploy`.
@@ -182,6 +214,25 @@ fn main() -> Result<()> {
         Command::AssertVerified { timeout_secs } => {
             assert_verified(&client, &cli.out_dir, timeout_secs)
         }
+        Command::LlmInit {
+            fixture,
+            settlement_program_id,
+        } => llm::llm_init(
+            &client,
+            &cli.rpc_url,
+            &cli.out_dir,
+            &fixture,
+            &Pubkey::from_str(&settlement_program_id)?,
+        ),
+        Command::LlmStage {
+            payload,
+            chunk_size,
+        } => llm::llm_stage(&client, &cli.out_dir, &payload, chunk_size),
+        Command::LlmAssert {
+            payload,
+            timeout_secs,
+        } => llm::llm_assert(&client, &cli.out_dir, &payload, timeout_secs),
+        Command::LlmReplay => llm::llm_replay(&client, &cli.out_dir),
     }
 }
 

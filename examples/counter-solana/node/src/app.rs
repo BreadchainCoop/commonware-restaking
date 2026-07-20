@@ -8,13 +8,25 @@
 //! (or the skip digest when the router abandons the height), and gossips acks
 //! on channel 0 until the height certifies.
 //!
+//! Two modes share the same binary and engine plumbing:
+//!
+//! - default: the counter demo ([`RoundTaskData`], digest bound to
+//!   `(ncn, round)`), consumed by the NCN program's stateless
+//!   `VerifyCertificate`;
+//! - `LLM_SETTLE=1`: the LLM settlement leg ([`LlmTaskData`] — the borsh
+//!   `SettlementPayload` bytes; the validator checks the payload binds the
+//!   node's OWN settlement state PDA before signing
+//!   `sha256(borsh(SettlementPayload))`, INTERFACES.md §4/§6).
+//!
 //! Chain interaction: operator discovery + stake + sockets from
 //! `NCNOperatorAccount`/`Snapshot` PDAs at `confirmed` (a live RPC endpoint is
 //! REQUIRED — the example takes config, it does not mock the chain).
 
+use anyhow::Result;
 use clap::{Arg, Command};
 use commonware_avs_core::validator::ValidatorTrait;
-use commonware_avs_jito::bn254::PublicKey;
+use commonware_avs_core::wire::TaskData;
+use commonware_avs_jito::bn254::{Bn254Signer, PublicKey};
 use commonware_avs_jito::scheme::JitoBn254Scheme;
 use commonware_avs_jito::{JitoQuorum, JitoStakingClient, NcnDeployment};
 use commonware_avs_node::automaton::NodeAutomaton;
@@ -35,9 +47,10 @@ use commonware_runtime::{
 use commonware_utils::ordered::Map;
 use commonware_utils::{NZU16, NZU64, NZUsize, NonZeroDuration};
 use counter_solana_common::{
-    APPLICATION_NAMESPACE, RoundTaskData, RoundValidator, RouterConnection,
-    ack_messages_per_second, agg_activity_timeout, agg_window, load_bn254_key, p2p_message_backlog,
-    p2p_quota_period, rebroadcast_interval, round_timeout, storage_directory,
+    APPLICATION_NAMESPACE, LLM_APPLICATION_NAMESPACE, LlmSettleValidator, LlmTaskData,
+    RoundTaskData, RoundValidator, RouterConnection, ack_messages_per_second, agg_activity_timeout,
+    agg_window, load_bn254_key, p2p_message_backlog, p2p_quota_period, rebroadcast_interval,
+    round_timeout, storage_directory,
 };
 use governor::Quota;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
@@ -60,12 +73,6 @@ async fn load_quorum(deployment: &NcnDeployment) -> JitoQuorum {
 }
 
 pub fn main() {
-    // A stable storage directory is REQUIRED: the engine's journal must
-    // survive restarts (the runtime default is a random per-process temp dir).
-    let storage_dir = storage_directory();
-    let runtime_cfg = tokio::Config::default().with_storage_directory(storage_dir.clone());
-    let runner = tokio::Runner::new(runtime_cfg);
-
     let matches = Command::new("counter-solana-node")
         .about("aggregation node for the Jito NCN counter demo")
         .arg(
@@ -103,6 +110,61 @@ pub fn main() {
     let signer = load_bn254_key(key_file).expect("failed to load BN254 key");
     let router_connection = RouterConnection::load(router_file).expect("router connection file");
 
+    // Mode switch: the LLM settlement leg signs settle-payload digests.
+    let llm_mode = std::env::var("LLM_SETTLE").is_ok_and(|v| v == "1");
+    if llm_mode {
+        run::<LlmTaskData, _>(
+            signer,
+            port,
+            router_connection,
+            LLM_APPLICATION_NAMESPACE,
+            |deployment| {
+                let settlement_program_id = deployment
+                    .settlement_program_id()
+                    .map_err(|e| anyhow::anyhow!("settlement program id: {e}"))?;
+                let state_pda = deployment
+                    .gk_state_pda()
+                    .map_err(|e| anyhow::anyhow!("gk state pda: {e}"))?;
+                Ok(Arc::new(LlmSettleValidator::new(
+                    settlement_program_id,
+                    state_pda,
+                )))
+            },
+        );
+    } else {
+        run::<RoundTaskData, _>(
+            signer,
+            port,
+            router_connection,
+            APPLICATION_NAMESPACE,
+            |deployment| {
+                let ncn = deployment
+                    .ncn()
+                    .map_err(|e| anyhow::anyhow!("ncn pubkey: {e}"))?;
+                Ok(Arc::new(RoundValidator::new(ncn)))
+            },
+        );
+    }
+}
+
+/// Runs the aggregation node for one task flavor. `validator_for` builds the
+/// task validator from the node's OWN deployment config once it is loaded.
+fn run<T, V>(
+    signer: Bn254Signer,
+    port: u16,
+    router_connection: RouterConnection,
+    namespace: &'static [u8],
+    validator_for: V,
+) where
+    T: TaskData + PartialEq,
+    V: FnOnce(&NcnDeployment) -> Result<Arc<dyn ValidatorTrait<T>>> + Send + 'static,
+{
+    // A stable storage directory is REQUIRED: the engine's journal must
+    // survive restarts (the runtime default is a random per-process temp dir).
+    let storage_dir = storage_directory();
+    let runtime_cfg = tokio::Config::default().with_storage_directory(storage_dir.clone());
+    let runner = tokio::Runner::new(runtime_cfg);
+
     runner.start(|context: tokio::Context| async move {
         let subscriber = tracing_subscriber::fmt()
             .with_max_level(tracing::Level::DEBUG)
@@ -114,7 +176,6 @@ pub fn main() {
         dotenv::dotenv().ok();
 
         let deployment = NcnDeployment::load().expect("NCN_DEPLOYMENT_PATH config");
-        let ncn = deployment.ncn().expect("ncn pubkey");
         let quorum = load_quorum(&deployment).await;
 
         // Startup quorum reconciliation (INTERFACES.md §5): refuse to start if
@@ -122,6 +183,11 @@ pub fn main() {
         quorum
             .reconcile_engine_quorum()
             .expect("refusing to start: engine quorum cannot clear the stake threshold");
+
+        // Validator: recomputes the expected digest, binding the consumer from
+        // OUR deployment config (never the router's bytes).
+        let validator: Arc<dyn ValidatorTrait<T>> =
+            validator_for(&deployment).expect("validator construction");
 
         // Authorized peers: every operator with a registered socket, plus the
         // router (whose key/address come from its connection file).
@@ -147,12 +213,8 @@ pub fn main() {
         // handshake signer (namespace-separated from certificate signing).
         const MAX_MESSAGE_SIZE: u32 = 1024 * 1024; // 1 MB
         let my_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port);
-        let mut p2p_cfg = lookup::Config::local(
-            signer.clone(),
-            APPLICATION_NAMESPACE,
-            my_addr,
-            MAX_MESSAGE_SIZE,
-        );
+        let mut p2p_cfg =
+            lookup::Config::local(signer.clone(), namespace, my_addr, MAX_MESSAGE_SIZE);
         // Behind K8s/NAT source IPs never match registered addresses.
         p2p_cfg.bypass_ip_check = true;
 
@@ -182,10 +244,6 @@ pub fn main() {
             network.register(ENGINE_CHANNEL, ack_quota, p2p_backlog);
         let (directive_sender, directive_receiver) =
             network.register(TASK_DIRECTIVE_CHANNEL, p2p_quota, p2p_backlog);
-
-        // Validator: recomputes the expected digest, binding the NCN from OUR
-        // deployment config (never the router's bytes).
-        let validator: Arc<dyn ValidatorTrait<RoundTaskData>> = Arc::new(RoundValidator::new(ncn));
 
         // TaskBook actor: owns the router's per-height directives.
         let (task_book, task_book_mailbox) = TaskBook::new(context.child("task_book"));
@@ -221,7 +279,7 @@ pub fn main() {
             context.child("reporter"),
             task_book_mailbox.clone(),
             Arc::clone(&engine_tip),
-            APPLICATION_NAMESPACE.to_vec(),
+            namespace.to_vec(),
         );
         context
             .child("reporter_actor")
@@ -233,7 +291,7 @@ pub fn main() {
             context.child("automaton"),
             task_book_mailbox,
             validator,
-            APPLICATION_NAMESPACE.to_vec(),
+            namespace.to_vec(),
             round_timeout(),
         );
 

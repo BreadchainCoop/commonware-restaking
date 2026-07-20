@@ -74,6 +74,15 @@ pub struct NcnDeployment {
     /// Optional priority fee (micro-lamports per CU).
     #[serde(default)]
     pub compute_unit_price: Option<u64>,
+    /// The gaskiller-settlement program id (INTERFACES.md §4). Present only
+    /// for deployments with a settlement consumer; together with [`app_id`]
+    /// it pins the `GkState` PDA both the node validator (task binding) and
+    /// the settle handler (submission target) derive independently.
+    #[serde(default)]
+    pub settlement_program_id: Option<String>,
+    /// The settlement consumer's 32-byte application id, hex-encoded.
+    #[serde(default)]
+    pub app_id: Option<String>,
 }
 
 fn default_commitment() -> String {
@@ -116,6 +125,19 @@ impl NcnDeployment {
                 deployment.consensus_threshold_bps
             )
             .into());
+        }
+        // Settlement binding is all-or-nothing: half a binding means the node
+        // validator and the settle handler would disagree on the state PDA.
+        match (&deployment.settlement_program_id, &deployment.app_id) {
+            (Some(_), Some(_)) => {
+                deployment.gk_state_pda()?;
+            }
+            (None, None) => {}
+            _ => {
+                return Err(
+                    "settlementProgramId and appId must be set together (or both omitted)".into(),
+                );
+            }
         }
         Ok(deployment)
     }
@@ -169,6 +191,40 @@ impl NcnDeployment {
     pub fn restaking_config_pda(&self) -> Result<Pubkey, ConfigError> {
         let (pda, _) =
             Pubkey::find_program_address(&[RESTAKING_CONFIG_SEED], &self.restaking_program_id()?);
+        Ok(pda)
+    }
+
+    /// The gaskiller-settlement program id, required for settle-mode runs.
+    pub fn settlement_program_id(&self) -> Result<Pubkey, ConfigError> {
+        let raw = self
+            .settlement_program_id
+            .as_ref()
+            .ok_or("settlementProgramId is not set in the deployment config")?;
+        Ok(Pubkey::from_str(raw)?)
+    }
+
+    /// The settlement consumer's 32-byte app id (hex in the config).
+    pub fn app_id_bytes(&self) -> Result<[u8; 32], ConfigError> {
+        let raw = self
+            .app_id
+            .as_ref()
+            .ok_or("appId is not set in the deployment config")?;
+        let bytes = hex::decode(raw.trim_start_matches("0x"))?;
+        let arr: [u8; 32] = bytes
+            .try_into()
+            .map_err(|b: Vec<u8>| format!("appId must be 32 bytes, got {}", b.len()))?;
+        Ok(arr)
+    }
+
+    /// The settlement consumer's `GkState` PDA
+    /// (`[b"gk_state", ncn, app_id]` under the settlement program) — derived
+    /// from THIS config, never taken from another party's bytes.
+    pub fn gk_state_pda(&self) -> Result<Pubkey, ConfigError> {
+        let (pda, _, _) = settlement_core::GkState::find_program_address(
+            &self.settlement_program_id()?,
+            &self.ncn()?,
+            &self.app_id_bytes()?,
+        );
         Ok(pda)
     }
 }

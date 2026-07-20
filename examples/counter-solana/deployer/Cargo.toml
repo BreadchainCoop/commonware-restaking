@@ -10,7 +10,9 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = { workspace = true }
+base64 = { workspace = true }
 borsh = "0.10.3"
+bs58 = "0.5"
 clap = { workspace = true, features = ["derive"] }
 hex = { workspace = true }
 jito-bytemuck = { workspace = true }
@@ -21,6 +23,7 @@ jito-vault-sdk = { workspace = true }
 ncn-program-core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+settlement-core = { workspace = true }
 solana-client = { workspace = true }
 solana-program = { workspace = true }
 solana-sdk = { workspace = true }

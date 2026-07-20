@@ -9,6 +9,9 @@ ark-bn254 = { workspace = true }
 ark-ff = { workspace = true }
 ark-serialize = { workspace = true }
 async-trait = { workspace = true }
+# settlement-core's wire types are borsh 0.10 (the version the NCN program's
+# shank/kinobi clients use); the settle handler (de)serializes them directly.
+borsh10 = { workspace = true }
 bytes = { workspace = true }
 commonware-avs-core = { path = "../core" }
 commonware-avs-router = { path = "../router" }
@@ -26,6 +29,7 @@ rand = { workspace = true }
 rand_core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+settlement-core = { workspace = true }
 solana-account-decoder = { workspace = true }
 solana-client = { workspace = true }
 solana-program = { workspace = true }
@@ -35,7 +39,3 @@ solana-transaction-status-client-types = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 
-[dev-dependencies]
-# Cross-checks the hand-rolled VerifyCertificate instruction encoding against
-# the same borsh version the NCN program's shank/kinobi clients use.
-borsh10 = { workspace = true }

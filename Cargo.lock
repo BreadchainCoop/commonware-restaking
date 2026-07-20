@@ -2467,6 +2467,7 @@ dependencies = [
  "rand_core 0.6.4",
  "serde",
  "serde_json",
+ "settlement-core",
  "solana-account-decoder",
  "solana-client",
  "solana-program",
@@ -3141,6 +3142,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "borsh 0.10.4",
  "bytes",
  "commonware-avs-core",
  "commonware-avs-jito",
@@ -3152,6 +3154,7 @@ dependencies = [
  "hex",
  "serde",
  "serde_json",
+ "settlement-core",
  "solana-sdk",
  "tracing",
 ]
@@ -3161,7 +3164,9 @@ name = "counter-solana-deployer"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "borsh 0.10.4",
+ "bs58",
  "clap",
  "hex",
  "jito-bytemuck",
@@ -3172,6 +3177,7 @@ dependencies = [
  "ncn-program-core",
  "serde",
  "serde_json",
+ "settlement-core",
  "solana-client",
  "solana-program",
  "solana-sdk",
@@ -3209,6 +3215,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base64 0.22.1",
+ "borsh 0.10.4",
  "clap",
  "commonware-avs-core",
  "commonware-avs-jito",
@@ -3222,6 +3230,10 @@ dependencies = [
  "counter-solana-common",
  "dotenv",
  "governor 0.10.4",
+ "hex",
+ "serde",
+ "serde_json",
+ "settlement-core",
  "solana-sdk",
  "tokio",
  "tracing",
@@ -5641,7 +5653,7 @@ dependencies = [
 [[package]]
 name = "ncn-program-core"
 version = "0.0.1"
-source = "git+https://github.com/BreadchainCoop/jito-ncn-program?branch=main#90134040f20e30232baf4c79b629a71c0773d8d5"
+source = "git+https://github.com/BreadchainCoop/jito-ncn-program?branch=main#2fe8e4e302e66c62aa987cd4c9b837a973117225"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
@@ -7662,6 +7674,21 @@ checksum = "a84f14a19e9a014bb9f4512488d9829a68e04ecabffb0f9904cd1ace94598177"
 dependencies = [
  "base16ct",
  "serde",
+]
+
+[[package]]
+name = "settlement-core"
+version = "0.0.1"
+source = "git+https://github.com/BreadchainCoop/jito-ncn-program?branch=main#2fe8e4e302e66c62aa987cd4c9b837a973117225"
+dependencies = [
+ "borsh 0.10.4",
+ "bytemuck",
+ "jito-bytemuck",
+ "ncn-program-core",
+ "shank",
+ "solana-nostd-sha256",
+ "solana-program",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

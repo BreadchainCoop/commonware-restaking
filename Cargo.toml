@@ -84,6 +84,13 @@ url = { version = "2.5.4", features = ["serde"] }
 # workspace pins solana-program to the jito-solana fork below, so the solana
 # runtime crates here use the SAME git source to keep types unified.
 ncn-program-core = { git = "https://github.com/BreadchainCoop/jito-ncn-program", branch = "main" }
+# The gaskiller-settlement program's shared types (INTERFACES.md §4): the
+# borsh SettlementPayload wire form + digest, instruction builders and 8-byte
+# discriminators, GkState + buffer PDA derivations. Same git source (and lock
+# revision) as ncn-program-core so one jito-ncn-program checkout flows through
+# the whole graph.
+settlement-core = { git = "https://github.com/BreadchainCoop/jito-ncn-program", branch = "main" }
+base64 = "0.22"
 # NOTE: branch v2.1-upgrade was DELETED upstream; its head 358fbc3c remains
 # fetchable by SHA, so these deps are pinned by `rev` (mirrors jito-ncn-program
 # main's own re-pin). This removes the fresh-clone dependency on the dead

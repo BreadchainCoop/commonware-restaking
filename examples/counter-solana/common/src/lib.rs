@@ -6,6 +6,7 @@
 //! they are chain-agnostic (journal directories, p2p quotas, engine windows).
 
 pub mod keys;
+pub mod llm;
 pub mod types;
 pub mod validator;
 
@@ -14,6 +15,10 @@ pub use counter_common::config::{
     p2p_quota_period, rebroadcast_interval, round_timeout, storage_directory,
 };
 pub use keys::{RouterConnection, load_bn254_key};
+pub use llm::{
+    LLM_APPLICATION_NAMESPACE, LlmSettleValidator, LlmTaskData, llm_payload_digest,
+    validate_settlement_payload,
+};
 pub use types::RoundTaskData;
 pub use validator::{RoundValidator, expected_digest};
 

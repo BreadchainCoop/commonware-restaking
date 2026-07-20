@@ -27,11 +27,13 @@ pub mod instruction;
 pub mod network;
 pub mod quorum;
 pub mod scheme;
+pub mod settle;
 pub mod submitter;
 
 pub use config::NcnDeployment;
 pub use network::{JitoOperatorInfo, JitoQuorum, JitoStakingClient};
 pub use scheme::{JitoBn254Scheme, JitoCertificate};
+pub use settle::SettleCertificateHandler;
 pub use submitter::{
     CertificateSubmission, JitoSubmitter, SolanaCertificateHandler, SolanaExecutionResult,
     VerifyCertificateHandler,
