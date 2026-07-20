@@ -12,6 +12,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The ncn-program-core git dependency's repo pins a submodule by SSH
+      # url (git@github.com:Unboxed-Software/commonware-avs-router-solana);
+      # cargo cannot clone it on a clean runner without this https rewrite
+      # (the repo is public — only the scheme is the problem).
+      - name: Rewrite SSH github urls to https (cargo git deps)
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -36,6 +43,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The ncn-program-core git dependency's repo pins a submodule by SSH
+      # url (git@github.com:Unboxed-Software/commonware-avs-router-solana);
+      # cargo cannot clone it on a clean runner without this https rewrite
+      # (the repo is public — only the scheme is the problem).
+      - name: Rewrite SSH github urls to https (cargo git deps)
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -51,6 +65,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # The ncn-program-core git dependency's repo pins a submodule by SSH
+      # url (git@github.com:Unboxed-Software/commonware-avs-router-solana);
+      # cargo cannot clone it on a clean runner without this https rewrite
+      # (the repo is public — only the scheme is the problem).
+      - name: Rewrite SSH github urls to https (cargo git deps)
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable

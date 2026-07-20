@@ -34,6 +34,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # The ncn-program-core git dependency's repo pins a submodule by SSH
+      # url; cargo cannot clone it on a clean runner without this https
+      # rewrite (public repo — only the scheme is the problem). The driver
+      # script also sets a process-scoped rewrite, but cargo's libgit2
+      # submodule path only honors config files.
+      - name: Rewrite SSH github urls to https (cargo git deps)
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+
       - name: Install Agave toolchain (solana-test-validator + cargo-build-sbf)
         run: |
           sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"

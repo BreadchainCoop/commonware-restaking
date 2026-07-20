@@ -94,6 +94,16 @@ done
 say "toolchain: $(solana --version | head -1)"
 mkdir -p "$WORK" "$OUT" "$LOGS" "$CACHE"
 
+# jito-ncn-program (the ncn-program-core git dep) pins a SUBMODULE by SSH url
+# (git@github.com:Unboxed-Software/commonware-avs-router-solana). On a clean
+# machine cargo's fetch of the dep fails to clone that submodule without SSH
+# auth. Route cargo's git work through the git CLI with a process-scoped
+# https rewrite (no global config mutation; the repo is public).
+export CARGO_NET_GIT_FETCH_WITH_CLI=true
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0="url.https://github.com/.insteadOf"
+export GIT_CONFIG_VALUE_0="git@github.com:"
+
 # ---------------------------------------------------------------------------
 # Step 1: build the three programs FROM SOURCE
 # ---------------------------------------------------------------------------
