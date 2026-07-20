@@ -1,0 +1,28 @@
+[package]
+name = "counter-solana-common"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+borsh10 = { workspace = true }
+bytes = { workspace = true }
+commonware-avs-core = { path = "../../../core" }
+commonware-avs-jito = { path = "../../../jito" }
+commonware-codec = { workspace = true }
+commonware-cryptography = { workspace = true }
+# Runtime tuning knobs (journal dirs, quotas, timeouts) are shared verbatim
+# with the EVM counter example; only its EVM-specific pieces are not reused.
+counter-common = { path = "../../counter/common" }
+hex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+settlement-core = { workspace = true }
+solana-sdk = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+commonware-math = { workspace = true }
+commonware-utils = { workspace = true }

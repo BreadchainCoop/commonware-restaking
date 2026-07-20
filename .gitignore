@@ -20,3 +20,7 @@ config/.nodes/
 test_processes.pids
 *.log
 *.bak
+
+# Solana e2e artifacts (scripts/solana_e2e_local.sh)
+.solana-e2e/
+target-docker/

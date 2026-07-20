@@ -1,0 +1,61 @@
+# Solana/Jito e2e leg — peer of the EVM docker-compose.yml.
+#
+# DESIGN CHOICE (script-first, documented): the EVM leg containerizes each
+# role (chain / deployer / nodes / router) because its chain container is a
+# long-lived anvil fork. The Solana leg CANNOT split the validator into a
+# fire-and-forget service: jito's SlotToggle warmup demands
+# `current_epoch > activation_epoch + 1` with a 432,000-slot epoch HARDCODED
+# at InitializeConfig (no admin ix), so the validator must be STOPPED and
+# RESTARTED with --warp-slot into epoch 2 between registration and cranking.
+# That restart choreography lives in scripts/solana_e2e_local.sh, which also
+# builds every program from pinned source (restaking/vault @ 358fbc3c with
+# env-injected program ids, NCN program @ BreadchainCoop main) and asserts a
+# successful VerifyCertificate on-chain at `confirmed`. This compose file
+# therefore runs THAT script in one container instead of duplicating its
+# choreography across services — one definition of the e2e, zero drift.
+# Per-role containers (keeper, settlement) can join once those services land.
+#
+#   docker compose -f docker-compose.solana.yml up --build \
+#     --exit-code-from solana-e2e
+#
+# The `settlement` profile is reserved for the gaskiller-settlement leg and
+# activates once jito-ncn-program's settlement-program branch merges to main.
+
+services:
+  solana-e2e:
+    build:
+      context: .
+      dockerfile: docker/solana-e2e.Dockerfile
+    volumes:
+      - .:/work
+      - solana-e2e-cargo-registry:/usr/local/cargo/registry
+      - solana-e2e-cargo-git:/usr/local/cargo/git
+      - solana-e2e-src-cache:/root/.cache/solana-e2e-src
+    environment:
+      - E2E_WORK_DIR=/tmp/solana-e2e
+      - CARGO_TARGET_DIR=/work/target-docker
+    ports:
+      - "8899:8899"
+
+  # Placeholder for the settlement leg (Track C/H): once
+  # jito-ncn-program main carries the settlement program, the driver script
+  # grows a settle assertion and this profile turns it on.
+  solana-e2e-settlement:
+    profiles: ["settlement"]
+    build:
+      context: .
+      dockerfile: docker/solana-e2e.Dockerfile
+    volumes:
+      - .:/work
+      - solana-e2e-cargo-registry:/usr/local/cargo/registry
+      - solana-e2e-cargo-git:/usr/local/cargo/git
+      - solana-e2e-src-cache:/root/.cache/solana-e2e-src
+    environment:
+      - E2E_WORK_DIR=/tmp/solana-e2e
+      - CARGO_TARGET_DIR=/work/target-docker
+      - E2E_SETTLEMENT=1
+
+volumes:
+  solana-e2e-cargo-registry:
+  solana-e2e-cargo-git:
+  solana-e2e-src-cache:

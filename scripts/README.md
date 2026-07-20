@@ -3,7 +3,54 @@
 This directory contains scripts for running a local end-to-end test of the AVS
 stack.
 
-## Overview
+## Solana/Jito e2e (`solana_e2e_local.sh`)
+
+ONE command boots the full Solana leg from a clean checkout:
+
+```bash
+# From the project root (needs the Agave toolchain 4.1.x + rust + git)
+./scripts/solana_e2e_local.sh
+```
+
+What it does — NO mocks, NO fake programs, real BLS certificates, real
+registrations:
+
+1. Builds the REAL jito restaking + vault programs from
+   jito-foundation/restaking source at the pinned rev `358fbc3c` (program ids
+   env-injected via `declare_id!(env!(...))`) and the NCN program from
+   BreadchainCoop/jito-ncn-program `main` (`cargo-build-sbf`).
+2. Boots `solana-test-validator` with the three programs at genesis.
+3. Phase A (epoch 0): `counter-solana-deployer deploy` — restaking + vault
+   `InitializeConfig`, NCN, 4 operators, the full handshake mesh (each
+   init/warmup pair straddles a slot boundary — jito's `SlotToggle` refuses
+   same-slot activation), SPL mint + vault + deposit + equal delegations, and
+   4 REAL BLS proof-of-possession `RegisterOperator` calls + on-chain ip/port
+   registration. Emits `ncn_deploy.json`, per-node BLS key files and the
+   router connection file.
+4. Waits for a full snapshot archive covering the deploy tip, then RESTARTS
+   the validator with `--warp-slot` into epoch 2. This is the epoch_length
+   answer: jito hardcodes 432,000 slots/epoch at `InitializeConfig` (no admin
+   ix exists to change it) and `SlotToggle` requires
+   `current_epoch > activation_epoch + 1`, so the empty epochs are compressed
+   by the warp while every state transition stays a real transaction.
+5. Phase B: `deploy activate` — vault update-state-tracker crank + NCN
+   snapshot crank per operator; asserts all 4 operators can vote.
+6. Starts 4 `counter-solana-node` processes + the `counter-solana-router`;
+   they reach BLS quorum on the round digest and the router's `JitoSubmitter`
+   lands `VerifyCertificate`.
+7. `deploy assert-verified` — polls the chain and PASSES only when a
+   successful `VerifyCertificate` transaction (discriminator byte 10,
+   `meta.err == None`) is observed at `confirmed` commitment.
+
+CI: `.github/workflows/solana-e2e.yml` runs exactly this script on a clean
+runner. `docker-compose.solana.yml` runs the same script containerized (see
+the design note at the top of that file for why the Solana leg is one
+service, not per-role services).
+
+Env overrides: `E2E_WORK_DIR`, `JITO_RESTAKING_SRC`, `NCN_PROGRAM_SRC`
+(existing clones to skip cloning), `E2E_KEEP_LEDGER=1`, `E2E_TICKS_PER_SLOT`.
+
+## EVM overview
 
 The test validates the complete end-to-end flow:
 
