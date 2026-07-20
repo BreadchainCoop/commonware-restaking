@@ -11,6 +11,7 @@ name: Solana E2E
 # scripts/solana_e2e_local.sh — this job runs exactly that script.
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
