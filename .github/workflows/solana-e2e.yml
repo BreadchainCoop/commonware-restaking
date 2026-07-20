@@ -73,8 +73,45 @@ jobs:
           path: ~/.cache/solana-e2e-src
           key: solana-e2e-src-${{ runner.os }}-${{ env.AGAVE_VERSION }}-358fbc3c20d947c977a136808f9fbf7f070e478b
 
+      # --keep-alive: on success the committee processes stop but the
+      # validator stays up, so the frontend smoke below can read the settled
+      # story from the live RPC. The runner tears everything down at job end.
       - name: Run the one-command e2e
-        run: bash scripts/solana_e2e_local.sh
+        run: bash scripts/solana_e2e_local.sh --keep-alive
+
+      # Frontend smoke (Track K): headless Playwright drives the demo page in
+      # BreadchainCoop/jito-ncn-program frontend/ against the validator the
+      # previous step left running, asserting the REAL settled story renders
+      # (state PDA decode, sha256-verified story from the buffer account, real
+      # program ids, zero console errors). The frontend lives in the NCN
+      # clone the e2e script already maintains; skip gracefully until
+      # frontend/smoke.mjs is on that repo's main.
+      - name: Frontend smoke (Playwright reads the settled story)
+        run: |
+          NCN_SRC="${XDG_CACHE_HOME:-$HOME/.cache}/solana-e2e-src/jito-ncn-program"
+          SMOKE="$NCN_SRC/frontend/smoke.mjs"
+          CONFIG="$GITHUB_WORKSPACE/.solana-e2e/out/frontend-config.json"
+          if [[ ! -f "$SMOKE" ]]; then
+            echo "frontend/smoke.mjs not on jito-ncn-program main yet — skipping"
+            exit 0
+          fi
+          if [[ ! -f "$CONFIG" ]]; then
+            echo "no frontend-config.json (LLM leg skipped?) — skipping"
+            exit 0
+          fi
+          mkdir -p /tmp/pw && cd /tmp/pw
+          npm init -y > /dev/null
+          npm install playwright > /dev/null
+          npx playwright install --with-deps chromium
+          node "$SMOKE" "$CONFIG" --screenshot /tmp/pw/frontend-live.png
+
+      - name: Upload frontend smoke screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-live-screenshot
+          path: /tmp/pw/frontend-live.png
+          if-no-files-found: ignore
 
       - name: Upload logs on failure
         if: failure()

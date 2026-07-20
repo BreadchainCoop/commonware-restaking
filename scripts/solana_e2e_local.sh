@@ -40,8 +40,20 @@
 #   E2E_KEEP_LEDGER=1      keep the ledger dir on exit (large!)
 #   E2E_TICKS_PER_SLOT     validator ticks per slot (default 16)
 #   E2E_LLM=0              skip the LLM settlement leg
+#   E2E_KEEP_ALIVE=1       (or --keep-alive) on SUCCESS: stop the committee
+#                          processes but leave the validator + ledger up, so
+#                          the frontend (or the Playwright smoke) can read the
+#                          settled story from the live RPC afterwards
 
 set -euo pipefail
+
+for arg in "$@"; do
+    case "$arg" in
+        --keep-alive) E2E_KEEP_ALIVE=1 ;;
+        *) echo "unknown argument: $arg" >&2; exit 2 ;;
+    esac
+done
+E2E_KEEP_ALIVE="${E2E_KEEP_ALIVE:-0}"
 
 # ---------------------------------------------------------------------------
 # Pins — single source of truth for source provenance
@@ -84,6 +96,16 @@ fail() { echo -e "${RED}[e2e] $*${NC}"; exit 1; }
 PIDS=()
 cleanup() {
     local code=$?
+    if [[ $code -eq 0 && "$E2E_KEEP_ALIVE" == "1" ]]; then
+        say "keep-alive: stopping committee processes, leaving the validator up"
+        for pid in "${PIDS[@]:-}"; do kill "$pid" 2>/dev/null || true; done
+        pkill -f "counter-solana-node --key-file $OUT" 2>/dev/null || true
+        pkill -f "counter-solana-router --key-file $OUT" 2>/dev/null || true
+        ok "validator still running at $RPC_URL (ledger: $LEDGER)"
+        ok "frontend config: $OUT/frontend-config.json"
+        ok "teardown: pkill -f 'solana-test-validator --ledger $LEDGER'; rm -rf '$LEDGER'"
+        exit 0
+    fi
     say "cleanup (exit $code)"
     for pid in "${PIDS[@]:-}"; do kill "$pid" 2>/dev/null || true; done
     pkill -f "counter-solana-node --key-file $OUT" 2>/dev/null || true
