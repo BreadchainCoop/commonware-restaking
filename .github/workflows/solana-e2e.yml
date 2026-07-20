@@ -1,10 +1,13 @@
 name: Solana E2E
 
 # The full Solana/Jito leg: real jito restaking + vault programs built from
-# source at the pinned rev, the NCN program built from BreadchainCoop/
-# jito-ncn-program main, a two-phase (--warp-slot) solana-test-validator,
-# 4 real BLS operator registrations, engine quorum, and an on-chain
-# VerifyCertificate asserted at `confirmed`. NO mocks. See
+# source at the pinned rev, the NCN + gaskiller-settlement programs built from
+# BreadchainCoop/jito-ncn-program main, a two-phase (--warp-slot)
+# solana-test-validator, 4 real BLS operator registrations, engine quorum, an
+# on-chain VerifyCertificate asserted at `confirmed`, and the LLM settlement
+# leg: the real Solidity LLM story payload certified by the same committee,
+# landed via Settle (chunked WriteBuffer staging, story_meta self-CPI,
+# read-back + replay-gate asserts). NO mocks. See
 # scripts/solana_e2e_local.sh — this job runs exactly that script.
 
 on:
@@ -14,6 +17,7 @@ on:
       - dev
       - staging
       - jito-compose
+      - llm-settle
   pull_request:
     branches:
       - main
