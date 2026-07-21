@@ -140,6 +140,21 @@ enum Command {
     },
     /// LLM leg: resubmit the landed Settle; must fail InvalidTransitionIndex.
     LlmReplay,
+    /// Qwen leg (§8): InitializeState for the Qwen consumer + emit artifacts.
+    QwenInit {
+        /// The checked-in Qwen producer fixture (prompt/answer ids + root).
+        #[arg(long)]
+        fixture: PathBuf,
+        #[arg(long, default_value = llm::DEFAULT_SETTLEMENT_PROGRAM_ID)]
+        settlement_program_id: String,
+    },
+    /// Qwen leg (§8): assert the settle outcome (root, count, answer_ids).
+    QwenAssert {
+        #[arg(long)]
+        payload: PathBuf,
+        #[arg(long, default_value_t = 300)]
+        timeout_secs: u64,
+    },
 }
 
 /// Everything later phases need, persisted by `deploy`.
@@ -233,6 +248,20 @@ fn main() -> Result<()> {
             timeout_secs,
         } => llm::llm_assert(&client, &cli.out_dir, &payload, timeout_secs),
         Command::LlmReplay => llm::llm_replay(&client, &cli.out_dir),
+        Command::QwenInit {
+            fixture,
+            settlement_program_id,
+        } => llm::qwen_init(
+            &client,
+            &cli.rpc_url,
+            &cli.out_dir,
+            &fixture,
+            &Pubkey::from_str(&settlement_program_id)?,
+        ),
+        Command::QwenAssert {
+            payload,
+            timeout_secs,
+        } => llm::qwen_assert(&client, &cli.out_dir, &payload, timeout_secs),
     }
 }
 

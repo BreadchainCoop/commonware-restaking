@@ -665,3 +665,375 @@ pub fn llm_replay(client: &RpcClient, out: &Path) -> Result<()> {
         }
     }
 }
+
+// ===========================================================================
+// §8 — Qwen answer settlement leg (real-model demo; supersedes the story leg).
+//
+// The settlement program is model-agnostic: it settles a digest + diff + event.
+// The Qwen payload is `[Store{commitment_root}, Event{qwen_answer}]` — the
+// answer token ids ride the event inline (no buffer, no story staging). This
+// module reuses the story leg's on-chain plumbing (InitializeState, GkState
+// reads, settle-tx recovery, the replay gate) and only swaps the payload the
+// producer feeds and the asserts (answer_ids read straight from the event).
+// ===========================================================================
+
+use borsh::BorshSerialize as _;
+
+/// The demo Qwen consumer's application id seed (distinct from the story leg).
+pub const QWEN_APP_ID_SEED: &[u8] = b"gaskiller-qwen-demo";
+
+/// `sha256("gk:qwen_answer")[..8]` — the §8 Qwen answer event discriminant.
+pub const QWEN_ANSWER_DISCRIMINANT: [u8; 8] = [0x2d, 0x80, 0x95, 0x5b, 0xd7, 0x65, 0x66, 0x84];
+
+/// The §8 `QwenAnswer` event payload (borsh; must match the producer + browser).
+#[derive(Debug, Clone, PartialEq, Eq, borsh::BorshSerialize, borsh::BorshDeserialize)]
+pub struct QwenAnswer {
+    pub model: u8,
+    pub prompt_ids: Vec<u32>,
+    pub answer_ids: Vec<u32>,
+    pub manifest: [u8; 32],
+}
+
+/// Provenance of a Qwen run (§8 frozen field names).
+#[derive(Debug, Deserialize)]
+pub struct QwenFixtureSource {
+    pub cmd: String,
+    pub sdk_commit: String,
+}
+
+/// The §8 Qwen producer fixture (frozen field names; Track Q3 decodes it).
+#[derive(Debug, Deserialize)]
+pub struct QwenProducerFixture {
+    pub prompt: String,
+    pub prompt_ids: Vec<u32>,
+    pub answer_ids: Vec<u32>,
+    pub answer_text: String,
+    pub commitment_root: String,
+    pub manifest: String,
+    pub payload_borsh_base64: String,
+    pub digest_hex: String,
+    pub source: QwenFixtureSource,
+}
+
+/// A Qwen fixture cross-checked against itself.
+pub struct VerifiedQwenFixture {
+    pub fixture: QwenProducerFixture,
+    pub payload: SettlementPayload,
+    pub new_root: [u8; 32],
+    pub answer: QwenAnswer,
+}
+
+/// Decode + self-verify a Qwen fixture: digest recompute, canonical borsh,
+/// exactly one `Store` equal to `commitment_root`, and a `qwen_answer` event
+/// whose ids/manifest match the top-level fields.
+pub fn load_qwen_fixture(path: &Path) -> Result<VerifiedQwenFixture> {
+    use base64::Engine as _;
+    let fixture: QwenProducerFixture = serde_json::from_str(
+        &std::fs::read_to_string(path)
+            .with_context(|| format!("reading qwen fixture {}", path.display()))?,
+    )
+    .with_context(|| format!("parsing qwen fixture {}", path.display()))?;
+
+    let payload_bytes = base64::engine::general_purpose::STANDARD
+        .decode(&fixture.payload_borsh_base64)
+        .context("payload_borsh_base64")?;
+    let payload = SettlementPayload::try_from_slice(&payload_bytes).context("payload borsh")?;
+    ensure_canonical(&payload, &payload_bytes)?;
+
+    let digest = sha256(&payload_bytes);
+    if hex::encode(digest) != fixture.digest_hex.to_lowercase() {
+        bail!(
+            "fixture digest_hex {} != sha256(payload) {}",
+            fixture.digest_hex,
+            hex::encode(digest)
+        );
+    }
+
+    let mut new_root = None;
+    let mut answer = None;
+    for update in &payload.updates {
+        match update {
+            StateUpdate::Store { data } => {
+                if new_root.replace(*data).is_some() {
+                    bail!("qwen fixture payload has more than one Store");
+                }
+            }
+            StateUpdate::Event {
+                discriminant,
+                payload: event_payload,
+            } => {
+                if *discriminant == QWEN_ANSWER_DISCRIMINANT {
+                    let decoded =
+                        QwenAnswer::try_from_slice(event_payload).context("qwen_answer event")?;
+                    if decoded.prompt_ids != fixture.prompt_ids {
+                        bail!("qwen_answer prompt_ids do not match the fixture");
+                    }
+                    if decoded.answer_ids != fixture.answer_ids {
+                        bail!("qwen_answer answer_ids do not match the fixture");
+                    }
+                    if hex::encode(decoded.manifest) != fixture.manifest.to_lowercase() {
+                        bail!("qwen_answer manifest does not match the fixture");
+                    }
+                    answer = Some(decoded);
+                } else {
+                    bail!("unexpected event discriminant in qwen payload");
+                }
+            }
+        }
+    }
+    let new_root = new_root.ok_or_else(|| anyhow!("qwen fixture payload has no Store"))?;
+    if hex::encode(new_root) != fixture.commitment_root.to_lowercase() {
+        bail!("Store data != fixture commitment_root");
+    }
+    Ok(VerifiedQwenFixture {
+        answer: answer.ok_or_else(|| anyhow!("qwen fixture has no qwen_answer event"))?,
+        new_root,
+        fixture,
+        payload,
+    })
+}
+
+fn ensure_canonical(payload: &SettlementPayload, bytes: &[u8]) -> Result<()> {
+    let reencoded = payload
+        .try_to_vec()
+        .map_err(|e| anyhow!("payload re-serialize: {e:?}"))?;
+    anyhow::ensure!(reencoded == bytes, "non-canonical payload encoding");
+    Ok(())
+}
+
+/// llm-init for the Qwen leg: InitializeState + emit the producer-regen env,
+/// the frontend config (model=qwen + answer-event coordinates), and llm.json.
+pub fn qwen_init(
+    client: &RpcClient,
+    rpc_url: &str,
+    out: &Path,
+    fixture_path: &Path,
+    settlement_program_id: &Pubkey,
+) -> Result<()> {
+    println!("== qwen-init: settlement consumer bootstrap (Qwen answer) ==");
+    let stack = read_stack_state(out)?;
+    let ncn = Pubkey::from_str(&stack.ncn)?;
+    let authority = read_keypair_file(out.join("authority.json"))
+        .map_err(|e| anyhow!("read authority: {e}"))?;
+    let verified = load_qwen_fixture(fixture_path)?;
+
+    let app_id = sha256(QWEN_APP_ID_SEED);
+    let sim_profile_id = sha256(verified.fixture.source.sdk_commit.as_bytes());
+    let env_commitment = sha256(verified.fixture.source.cmd.as_bytes());
+
+    let (state_pda, _, _) = GkState::find_program_address(settlement_program_id, &ncn, &app_id);
+    println!("settlement program: {settlement_program_id}");
+    println!("state pda:          {state_pda}");
+
+    send(
+        client,
+        "settlement InitializeState (qwen)",
+        &[initialize_state_ix(
+            settlement_program_id,
+            &state_pda,
+            &ncn,
+            &authority.pubkey(),
+            &InitializeStateArgs {
+                app_id,
+                sim_profile_id,
+                env_commitment,
+            },
+        )
+        .map_err(|e| anyhow!("initialize_state ix: {e:?}"))?],
+        &authority,
+        &[],
+    )?;
+
+    let state = read_gk_state(client, &state_pda)?;
+    if state.transition_count() != 0
+        || state.app_id() != &app_id
+        || state.sim_profile_id() != &sim_profile_id
+        || state.env_commitment() != &env_commitment
+        || state.ncn() != &ncn
+    {
+        bail!("on-chain GkState does not match the initialize arguments");
+    }
+    println!("  gk_state verified on-chain (transition_count=0)");
+
+    // Patch the shared deployment config with the settlement binding.
+    let deploy_path = out.join("ncn_deploy.json");
+    let mut deploy: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&deploy_path)?)?;
+    deploy["settlementProgramId"] = serde_json::Value::String(settlement_program_id.to_string());
+    deploy["appId"] = serde_json::Value::String(hex::encode(app_id));
+    std::fs::write(&deploy_path, serde_json::to_string_pretty(&deploy)?)?;
+    println!("  ncn_deploy.json patched with the settlement binding");
+
+    // Frontend config: model=qwen + the answer-event coordinates so Track Q3
+    // can find the settle tx's qwen_answer self-CPI and BPE-decode answer_ids.
+    write_json(
+        &out.join("frontend-config.json"),
+        &serde_json::json!({
+            "rpcUrl": rpc_url,
+            "ncnProgramId": stack.ncn_program_id,
+            "settlementProgramId": settlement_program_id.to_string(),
+            "statePda": state_pda.to_string(),
+            "cluster": "localnet",
+            "commitment": "confirmed",
+            "model": "qwen",
+            "qwenModelTag": verified.answer.model,
+            "answerEvent": {
+                "discriminantHex": hex::encode(QWEN_ANSWER_DISCRIMINANT),
+                "transitionIndex": verified.payload.transition_index,
+                "manifestHex": verified.fixture.manifest,
+            },
+            "prompt": verified.fixture.prompt,
+            "promptIds": verified.fixture.prompt_ids,
+        }),
+    )?;
+    println!("  frontend-config.json written (model=qwen)");
+
+    // Leg state (reused by qwen-replay) + producer-regen env.
+    write_json(
+        &out.join("llm.json"),
+        &LlmState {
+            settlement_program_id: settlement_program_id.to_string(),
+            state_pda: state_pda.to_string(),
+            buffer_pda: state_pda.to_string(), // unused for qwen (answer is inline)
+            app_id_hex: hex::encode(app_id),
+            sim_profile_id_hex: hex::encode(sim_profile_id),
+            env_commitment_hex: hex::encode(env_commitment),
+        },
+    )?;
+
+    let env_sh = format!(
+        "# generated by counter-solana-deployer qwen-init\n\
+         export LLM_STATE_PDA={}\n\
+         export LLM_STATE_PDA_HEX={}\n\
+         export LLM_SETTLE_DISC_HEX={}\n\
+         export LLM_NEW_ROOT_HEX={}\n\
+         export LLM_MANIFEST_HEX={}\n\
+         export LLM_MODEL_TAG={}\n\
+         export LLM_PROMPT={}\n\
+         export LLM_PROMPT_IDS={}\n\
+         export LLM_ANSWER_IDS={}\n\
+         export LLM_ANSWER_TEXT={}\n\
+         export LLM_SIM_COMMAND={}\n\
+         export LLM_SDK_COMMIT={}\n\
+         export LLM_CHECKED_IN_DIGEST_HEX={}\n",
+        state_pda,
+        hex::encode(state_pda.to_bytes()),
+        hex::encode(SETTLE_DISCRIMINATOR),
+        hex::encode(verified.new_root),
+        verified.fixture.manifest,
+        verified.answer.model,
+        shell_quote(&verified.fixture.prompt),
+        verified
+            .fixture
+            .prompt_ids
+            .iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(","),
+        verified
+            .fixture
+            .answer_ids
+            .iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(","),
+        shell_quote(&verified.fixture.answer_text),
+        shell_quote(&verified.fixture.source.cmd),
+        shell_quote(&verified.fixture.source.sdk_commit),
+        verified.fixture.digest_hex,
+    );
+    std::fs::write(out.join("llm_env.sh"), env_sh)?;
+    println!("  llm_env.sh + llm.json written");
+    println!("== qwen-init complete ==");
+    Ok(())
+}
+
+/// qwen-assert: after the router lands `Settle`, assert at `confirmed` that the
+/// commitment_root == the Qwen root, transition_count == 1, and the qwen_answer
+/// self-CPI event carries the real answer_ids. No buffer (the answer is inline).
+pub fn qwen_assert(
+    client: &RpcClient,
+    out: &Path,
+    payload_path: &Path,
+    timeout_secs: u64,
+) -> Result<()> {
+    println!("== qwen-assert: settle outcome on-chain (confirmed) ==");
+    let llm = read_llm_state(out)?;
+    let settlement_pid = Pubkey::from_str(&llm.settlement_program_id)?;
+    let verified = load_qwen_fixture(payload_path)?;
+    let state_pda = Pubkey::new_from_array(verified.payload.state_pda);
+    let expected_count = verified.payload.transition_index + 1;
+
+    // 1. Wait for the transition counter to advance.
+    let deadline = Instant::now() + Duration::from_secs(timeout_secs);
+    loop {
+        match read_gk_state(client, &state_pda) {
+            Ok(state) if state.transition_count() >= expected_count => break,
+            Ok(state) => println!(
+                "  waiting: transition_count={} (want {expected_count})",
+                state.transition_count()
+            ),
+            Err(e) => println!("  waiting: {e}"),
+        }
+        if Instant::now() > deadline {
+            bail!("settle did not land within {timeout_secs}s");
+        }
+        std::thread::sleep(Duration::from_secs(2));
+    }
+
+    // 2. State: exactly one transition, root == the payload's Store.
+    let state = read_gk_state(client, &state_pda)?;
+    if state.transition_count() != expected_count {
+        bail!(
+            "transition_count {} != expected {expected_count}",
+            state.transition_count()
+        );
+    }
+    if state.commitment_root() != &verified.new_root {
+        bail!(
+            "commitment_root {} != fixture root {}",
+            hex::encode(state.commitment_root()),
+            hex::encode(verified.new_root)
+        );
+    }
+    println!(
+        "  commitment_root == fixture root ({}), transition_count == {expected_count}",
+        hex::encode(verified.new_root)
+    );
+
+    // 3. The settle transaction carries the qwen_answer self-CPI event with the
+    //    real answer ids.
+    let (sig, settle_data, events) = find_settle_tx(client, &settlement_pid, &state_pda)?
+        .ok_or_else(|| anyhow!("no successful settle transaction found on {state_pda}"))?;
+    let args = SettleArgs::try_from_slice(&settle_data[8..]).context("landed settle args")?;
+    if args.payload != verified.payload {
+        bail!("landed settle payload does not match the fixture payload");
+    }
+    let qwen_event = events
+        .iter()
+        .find(|data| data.get(..8) == Some(&QWEN_ANSWER_DISCRIMINANT))
+        .ok_or_else(|| anyhow!("settle tx has no qwen_answer self-CPI inner instruction"))?;
+    let event_answer =
+        QwenAnswer::try_from_slice(&qwen_event[8..]).context("qwen_answer event payload")?;
+    if event_answer != verified.answer {
+        bail!("emitted qwen_answer does not match the fixture answer");
+    }
+    if event_answer.answer_ids != verified.fixture.answer_ids {
+        bail!("emitted answer_ids do not match the fixture answer_ids");
+    }
+    println!(
+        "  qwen_answer self-CPI event present in settle tx {sig}: answer_ids {:?}",
+        event_answer.answer_ids
+    );
+    std::fs::write(out.join("llm_settle_tx.txt"), sig.to_string())?;
+
+    // 4. The answer, decoded for humans (Track Q3 BPE-decodes answer_ids live).
+    println!("--- qwen answer (from the fixture text) ---");
+    println!("{}", verified.fixture.answer_text);
+    println!("--- end answer ---");
+    println!(
+        "== qwen-assert PASSED: settle tx {sig}, digest {} ==",
+        verified.fixture.digest_hex
+    );
+    Ok(())
+}

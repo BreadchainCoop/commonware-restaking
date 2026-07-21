@@ -19,6 +19,7 @@ on:
       - staging
       - jito-compose
       - llm-settle
+      - qwen-settle
   pull_request:
     branches:
       - main

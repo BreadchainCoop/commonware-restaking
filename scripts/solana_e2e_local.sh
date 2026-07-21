@@ -61,7 +61,14 @@ E2E_KEEP_ALIVE="${E2E_KEEP_ALIVE:-0}"
 JITO_RESTAKING_REV="358fbc3c20d947c977a136808f9fbf7f070e478b"
 JITO_RESTAKING_REPO="https://github.com/jito-foundation/restaking.git"
 NCN_PROGRAM_REPO="https://github.com/BreadchainCoop/jito-ncn-program.git"
-NCN_PROGRAM_REF="main"
+# The Qwen leg needs the qwen-producer branch (adds `--mode qwen` to the payload
+# producer + the checked-in qwen06_capital_of_france.json fixture). It is branched
+# off the same main rev as the settlement merge, so the NCN + settlement programs
+# build identically. Override NCN_PROGRAM_REF=main + LLM_MODEL=story for the story leg.
+NCN_PROGRAM_REF="${NCN_PROGRAM_REF:-qwen-producer}"
+# LLM settlement leg model: `qwen` (§8, real Qwen3-0.6B answer, inline ids) or
+# `story` (§4, buffered stories260K story).
+LLM_MODEL="${LLM_MODEL:-qwen}"
 
 RESTAKING_PROGRAM_ID="RestkWeAVL8fRGgzhfeoqFhsqKRchg6aa1XrcH96z4Q"
 VAULT_PROGRAM_ID="Vau1t6sLNxnzB7ZDsef8TLbPLfyZMYXH8WTNqUdm9g8"
@@ -212,8 +219,13 @@ if [[ "$E2E_LLM" == "1" ]]; then
         say "building llm-payload-producer CLI"
         (cd "$NCN_SRC" && cargo build -p llm-payload-producer)
     fi
-    LLM_FIXTURE="$NCN_SRC/llm_payload_producer/fixtures/tell_story_once_upon_a_time.json"
+    if [[ "$LLM_MODEL" == "qwen" ]]; then
+        LLM_FIXTURE="$NCN_SRC/llm_payload_producer/fixtures/qwen06_capital_of_france.json"
+    else
+        LLM_FIXTURE="$NCN_SRC/llm_payload_producer/fixtures/tell_story_once_upon_a_time.json"
+    fi
     [[ -f "$LLM_FIXTURE" ]] || fail "checked-in LLM fixture missing: $LLM_FIXTURE"
+    say "LLM leg model: $LLM_MODEL (fixture $(basename "$LLM_FIXTURE"))"
 fi
 
 # ---------------------------------------------------------------------------
@@ -278,25 +290,50 @@ if [[ "$E2E_LLM" == "1" ]]; then
     # settle discriminator + transition_index 0). The story bytes, root and
     # provenance stay the checked-in fixture's ground truth — the EVM sim is
     # NOT re-run.
-    say "phase A: llm-init (settlement InitializeState + artifacts)"
-    "$DEPLOYER" --rpc-url "$RPC_URL" --out-dir "$OUT" llm-init \
-        --fixture "$LLM_FIXTURE" \
-        --settlement-program-id "$SETTLEMENT_PROGRAM_ID" | tee "$LOGS/llm-init.log"
+    if [[ "$LLM_MODEL" == "qwen" ]]; then
+        say "phase A: qwen-init (settlement InitializeState + artifacts)"
+        "$DEPLOYER" --rpc-url "$RPC_URL" --out-dir "$OUT" qwen-init \
+            --fixture "$LLM_FIXTURE" \
+            --settlement-program-id "$SETTLEMENT_PROGRAM_ID" | tee "$LOGS/llm-init.log"
 
-    # shellcheck disable=SC1091
-    source "$OUT/llm_env.sh"
-    say "regenerating the payload via llm-payload-producer (real state PDA + discriminator)"
-    "$PRODUCER" \
-        --prompt "$LLM_PROMPT" \
-        --story-file "$OUT/story.txt" \
-        --new-root "$LLM_NEW_ROOT_HEX" \
-        --transition-index 0 \
-        --state-pda "$LLM_STATE_PDA_HEX" \
-        --ix-discriminator "$LLM_SETTLE_DISC_HEX" \
-        --buffer "$LLM_BUFFER_PDA_HEX" \
-        --sim-command "$LLM_SIM_COMMAND" \
-        --solidity-sdk-commit "$LLM_SDK_COMMIT" \
-        --out "$OUT/llm_payload.json" | tee "$LOGS/llm-producer.log"
+        # shellcheck disable=SC1091
+        source "$OUT/llm_env.sh"
+        say "regenerating the qwen payload via llm-payload-producer (real state PDA + discriminator)"
+        "$PRODUCER" --mode qwen \
+            --prompt "$LLM_PROMPT" \
+            --prompt-ids "$LLM_PROMPT_IDS" \
+            --answer-ids "$LLM_ANSWER_IDS" \
+            --answer-text "$LLM_ANSWER_TEXT" \
+            --manifest "$LLM_MANIFEST_HEX" \
+            --model "$LLM_MODEL_TAG" \
+            --new-root "$LLM_NEW_ROOT_HEX" \
+            --transition-index 0 \
+            --state-pda "$LLM_STATE_PDA_HEX" \
+            --ix-discriminator "$LLM_SETTLE_DISC_HEX" \
+            --sim-command "$LLM_SIM_COMMAND" \
+            --solidity-sdk-commit "$LLM_SDK_COMMIT" \
+            --out "$OUT/llm_payload.json" | tee "$LOGS/llm-producer.log"
+    else
+        say "phase A: llm-init (settlement InitializeState + artifacts)"
+        "$DEPLOYER" --rpc-url "$RPC_URL" --out-dir "$OUT" llm-init \
+            --fixture "$LLM_FIXTURE" \
+            --settlement-program-id "$SETTLEMENT_PROGRAM_ID" | tee "$LOGS/llm-init.log"
+
+        # shellcheck disable=SC1091
+        source "$OUT/llm_env.sh"
+        say "regenerating the payload via llm-payload-producer (real state PDA + discriminator)"
+        "$PRODUCER" \
+            --prompt "$LLM_PROMPT" \
+            --story-file "$OUT/story.txt" \
+            --new-root "$LLM_NEW_ROOT_HEX" \
+            --transition-index 0 \
+            --state-pda "$LLM_STATE_PDA_HEX" \
+            --ix-discriminator "$LLM_SETTLE_DISC_HEX" \
+            --buffer "$LLM_BUFFER_PDA_HEX" \
+            --sim-command "$LLM_SIM_COMMAND" \
+            --solidity-sdk-commit "$LLM_SDK_COMMIT" \
+            --out "$OUT/llm_payload.json" | tee "$LOGS/llm-producer.log"
+    fi
     LLM_NEW_DIGEST=$(sed -n 's/.*"digest_hex": "\([0-9a-f]*\)".*/\1/p' "$OUT/llm_payload.json")
     ok "payload digest: $LLM_NEW_DIGEST (checked-in fixture had $LLM_CHECKED_IN_DIGEST_HEX — the state_pda/ix_discriminator placeholders became real)"
 fi
@@ -342,10 +379,11 @@ ok "validator warped to slot $SLOT_B (epoch $((SLOT_B / EPOCH_LENGTH)))"
 say "phase B: activate"
 "$DEPLOYER" --rpc-url "$RPC_URL" --out-dir "$OUT" activate | tee "$LOGS/activate.log"
 
-if [[ "$E2E_LLM" == "1" ]]; then
+if [[ "$E2E_LLM" == "1" && "$LLM_MODEL" != "qwen" ]]; then
     # Stage the story bytes into the transition-0 buffer PDA. 457 bytes fit
     # one transaction; chunking at 256 B forces >= 2 WriteBuffer calls to
-    # exercise the append path for real.
+    # exercise the append path for real. (Qwen answers ride the event inline —
+    # no buffer, nothing to stage.)
     say "phase B: llm-stage (chunked WriteBuffer)"
     "$DEPLOYER" --rpc-url "$RPC_URL" --out-dir "$OUT" llm-stage \
         --payload "$OUT/llm_payload.json" --chunk-size 256 | tee "$LOGS/llm-stage.log"
@@ -416,8 +454,13 @@ if [[ "$E2E_LLM" == "1" ]]; then
     PIDS+=($!)
 
     say "LLM leg: waiting for the settle to land (confirmed)"
-    "$DEPLOYER" --rpc-url "$RPC_URL" --out-dir "$OUT" llm-assert \
-        --payload "$OUT/llm_payload.json" --timeout-secs 300 | tee "$LOGS/llm-assert.log"
+    if [[ "$LLM_MODEL" == "qwen" ]]; then
+        "$DEPLOYER" --rpc-url "$RPC_URL" --out-dir "$OUT" qwen-assert \
+            --payload "$OUT/llm_payload.json" --timeout-secs 300 | tee "$LOGS/llm-assert.log"
+    else
+        "$DEPLOYER" --rpc-url "$RPC_URL" --out-dir "$OUT" llm-assert \
+            --payload "$OUT/llm_payload.json" --timeout-secs 300 | tee "$LOGS/llm-assert.log"
+    fi
 
     say "LLM leg: replay gate (identical Settle must fail InvalidTransitionIndex)"
     "$DEPLOYER" --rpc-url "$RPC_URL" --out-dir "$OUT" llm-replay | tee "$LOGS/llm-replay.log"
@@ -426,5 +469,9 @@ if [[ "$E2E_LLM" == "1" ]]; then
     ok "frontend config: $OUT/frontend-config.json"
     sed 's/^/[e2e]   /' "$OUT/frontend-config.json"
 
-    ok "SOLANA LLM SETTLEMENT E2E PASSED — the real Solidity LLM story was certified by the 4-operator BLS committee and settled on-chain (digest $LLM_NEW_DIGEST)"
+    if [[ "$LLM_MODEL" == "qwen" ]]; then
+        ok "SOLANA QWEN SETTLEMENT E2E PASSED — the real Qwen3-0.6B answer was certified by the 4-operator BLS committee and settled on-chain (digest $LLM_NEW_DIGEST)"
+    else
+        ok "SOLANA LLM SETTLEMENT E2E PASSED — the real Solidity LLM story was certified by the 4-operator BLS committee and settled on-chain (digest $LLM_NEW_DIGEST)"
+    fi
 fi
