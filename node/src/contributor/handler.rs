@@ -16,7 +16,7 @@ use hex::encode as hex;
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{info, warn};
 
 pub struct Contributor<T>
 where
@@ -231,7 +231,20 @@ where
             }
             let mut buf = Vec::with_capacity(message.encode_size());
             message.write(&mut buf);
-            let payload = validator.validate_and_return_expected_hash(&buf).await?;
+            // A failed validation is this operator declining ONE round — it must not
+            // end the signing loop. `?` here returned out of `run`, leaving the
+            // process, its p2p links and health probes up while it never signed
+            // again. Forget the round so a rebroadcast of the same `Start` gets a
+            // fresh attempt (a transient RPC error heals; a deterministic refusal
+            // just declines again).
+            let payload = match validator.validate_and_return_expected_hash(&buf).await {
+                Ok(payload) => payload,
+                Err(error) => {
+                    warn!(round, %error, "declining to sign: validation failed");
+                    signed.remove(&round);
+                    continue;
+                }
+            };
             info!(
                 "Generating signature for round: {}, payload hash: {}",
                 round,
